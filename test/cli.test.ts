@@ -42,12 +42,12 @@ describe("Session Start", () => {
       consoleLog.mockRestore();
     }
 
-    const sessionInboxFiles = await readdir(join(vault, ".onix", "sessions"));
+    const sessionInboxFiles = await readdir(join(vault, "Onix", "Sessions"));
 
     expect(sessionInboxFiles).toHaveLength(1);
     expect(sessionInboxFiles[0]).toMatch(/^session-inbox-\d{8}-\d{6}\.md$/);
 
-    const inboxPath = join(vault, ".onix", "sessions", sessionInboxFiles[0] ?? "");
+    const inboxPath = join(vault, "Onix", "Sessions", sessionInboxFiles[0] ?? "");
     await expect(readFile(inboxPath, "utf8")).resolves.toBe("");
     expect((await stat(inboxPath)).isFile()).toBe(true);
 
@@ -55,7 +55,7 @@ describe("Session Start", () => {
       await readFile(join(vault, ".onix", "state", "active-session.json"), "utf8")
     ) as { inboxPath?: string };
 
-    expect(activeSession.inboxPath).toBe(`.onix/sessions/${sessionInboxFiles[0]}`);
+    expect(activeSession.inboxPath).toBe(`Onix/Sessions/${sessionInboxFiles[0]}`);
     expect(stdout.join("\n")).toContain("Started Ephemeral Session");
     expect(stdout.join("\n")).toContain(activeSession.inboxPath);
   });
@@ -65,7 +65,7 @@ describe("Session Start", () => {
     const stderr: string[] = [];
 
     await createCli().exitOverride().parseAsync(["node", "onix", "--vault", vault, "start"]);
-    const initialSessionInboxFiles = await readdir(join(vault, ".onix", "sessions"));
+    const initialSessionInboxFiles = await readdir(join(vault, "Onix", "Sessions"));
 
     await expect(
       createCli()
@@ -74,7 +74,7 @@ describe("Session Start", () => {
         .parseAsync(["node", "onix", "--vault", vault, "start"])
     ).rejects.toThrow("An Ephemeral Session is already active");
 
-    await expect(readdir(join(vault, ".onix", "sessions"))).resolves.toEqual(initialSessionInboxFiles);
+    await expect(readdir(join(vault, "Onix", "Sessions"))).resolves.toEqual(initialSessionInboxFiles);
     expect(stderr.join("")).toContain("An Ephemeral Session is already active");
     expect(stderr.join("")).toContain(initialSessionInboxFiles[0]);
   });

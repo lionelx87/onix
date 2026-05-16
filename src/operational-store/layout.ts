@@ -11,7 +11,6 @@ export type OperationalStoreLayout = {
     approvalState: string;
     logs: string;
     cache: string;
-    sessions: string;
   };
 };
 
@@ -28,8 +27,7 @@ export function storeLayout(root: string): OperationalStoreLayout {
       patchPlans: `${root}/plans/`,
       approvalState: `${root}/approvals/`,
       logs: `${root}/logs/`,
-      cache: `${root}/cache/`,
-      sessions: `${root}/sessions/`
+      cache: `${root}/cache/`
     }
   };
 }

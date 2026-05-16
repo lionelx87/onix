@@ -2,6 +2,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, posix } from "node:path";
 import { storeLayout } from "./operational-store/layout.js";
 
+const visibleSessionInboxDirectory = posix.join("Onix", "Sessions");
+
 export type ActiveSession = {
   schemaVersion: 1;
   startedAt: string;
@@ -29,14 +31,14 @@ export async function startSession(vaultPath: string, now = new Date()): Promise
   }
 
   const timestamp = formatTimestamp(now);
-  const inboxPath = posix.join(layout.transient.sessions, `session-inbox-${timestamp}.md`);
+  const inboxPath = posix.join(visibleSessionInboxDirectory, `session-inbox-${timestamp}.md`);
   const activeSession: ActiveSession = {
     schemaVersion: 1,
     startedAt: now.toISOString(),
     inboxPath
   };
 
-  await mkdir(join(vaultPath, layout.transient.sessions), { recursive: true });
+  await mkdir(join(vaultPath, visibleSessionInboxDirectory), { recursive: true });
   await mkdir(join(vaultPath, ".onix", "state"), { recursive: true });
   await writeFile(join(vaultPath, inboxPath), "", { flag: "wx" });
   await writeFile(join(vaultPath, layout.transient.activeSession), JSON.stringify(activeSession, null, 2), {

@@ -55,7 +55,7 @@ After successful write verification, the **Session Inbox** is deleted. The tool 
 - Commands that create or modify session state require an explicit vault path; **Session Start** must not infer the target vault from the current working directory.
 - A **Session Start** action creates a dated **Session Inbox** note and records it as the only **Active Session**.
 - Only one **Active Session** can exist at a time.
-- The **Session Inbox** lives inside the Obsidian vault and is deleted after successful **Session Closing** and write verification.
+- The **Session Inbox** lives inside a visible Obsidian vault folder so the user can open and edit it during the session, and is deleted after successful **Session Closing** and write verification.
 - **Session Closing** begins by updating a lightweight **Vault Index**.
 - The **Vault Index** includes structural metadata such as note paths, titles, aliases, headings, tags, summaries or opening paragraphs, and important outgoing links.
 - The tool reads full note contents only for **Candidate Notes** selected from the index.
@@ -74,7 +74,7 @@ After successful write verification, the **Session Inbox** is deleted. The tool 
 - The tool must not reorganize folders, rename existing notes, or delete existing thematic content in the MVP unless covered by an explicit approved action.
 - **Commit Validation** checks destination file state before applying approved changes. If a destination changed since the proposal, the affected part is regenerated instead of blindly applied.
 - The tool ends with **Versioning Review** and does not automatically commit Git changes.
-- Use an **Operational Store** for tool state such as active session metadata, vault index, plans, approval state, and classification rules.
+- Use an **Operational Store** for tool state such as active session metadata, vault index, plans, approval state, and classification rules. The visible **Session Inbox** is user-editable vault content, not hidden operational state.
 - Only stable **Versioned Tool State**, such as configuration and approved classification rules, should be committed. Active session state, generated plans, approval state, indexes, logs, and caches are transient.
 
 ## Suggested Modules

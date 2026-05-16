@@ -37,6 +37,8 @@ Vitest supports fast local and CI tests for the CLI surface, vault fixtures, val
 
 Session-state commands require an explicit `--vault <path>` argument. The CLI must not silently use the current working directory as the target vault for **Session Start**, because that can create an **Active Session** outside the vault that **Session Closing** later operates on.
 
+The **Session Inbox** is user-editable vault content, so it is created in a visible vault folder rather than inside `.onix/`. The **Active Session** metadata remains transient hidden tool state under `.onix/state/active-session.json`.
+
 ## Operational Store Layout
 
 The default **Operational Store** root is `.onix/` inside the target vault.
@@ -54,7 +56,6 @@ Ignored transient **Operational Store** data:
 - `.onix/approvals/`
 - `.onix/logs/`
 - `.onix/cache/`
-- `.onix/sessions/`
 
 ## Consequences
 
