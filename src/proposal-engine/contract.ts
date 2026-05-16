@@ -1,11 +1,34 @@
 import { z } from "zod";
+import type { VaultIndex } from "../vault-index.js";
+
+const vaultIndexNoteSchema = z.object({
+  path: z.string().min(1),
+  title: z.string(),
+  aliases: z.array(z.string()),
+  headings: z.array(z.string()),
+  tags: z.array(z.string()),
+  summary: z.string(),
+  outgoingLinks: z.array(z.string())
+});
+
+const vaultIndexSchema: z.ZodType<VaultIndex> = z.object({
+  schemaVersion: z.literal(1),
+  generatedAt: z.string().min(1),
+  notes: z.array(vaultIndexNoteSchema)
+});
 
 export const proposalEngineInputSchema = z.object({
   schemaVersion: z.literal(1),
   sessionInboxPath: z.string().min(1),
   freeformCapture: z.string(),
   vaultIndexRef: z.string().min(1),
-  candidateNotePaths: z.array(z.string().min(1))
+  vaultIndex: vaultIndexSchema,
+  candidateNotes: z.array(
+    z.object({
+      path: z.string().min(1),
+      content: z.string()
+    })
+  )
 });
 
 export const patchPlanSchema = z.object({

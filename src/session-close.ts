@@ -5,6 +5,7 @@ import type { PatchPlan, ProposalEngine } from "./proposal-engine/contract.js";
 import { createStubProposalEngine } from "./proposal-engine/stub.js";
 import { renderReview } from "./review-rendering.js";
 import type { ActiveSession } from "./session-start.js";
+import { buildVaultIndex, selectCandidateNotes } from "./vault-index.js";
 
 export type CloseSessionResult = {
   plan: PatchPlan;
@@ -37,13 +38,26 @@ export async function closeSession(
   const activeSession = await readActiveSession(vaultPath);
   const inbox = await readSessionInbox(vaultPath, activeSession);
   const freeformCapture = stripSessionFrontmatter(inbox.content);
+  const vaultIndex = await buildVaultIndex(vaultPath);
+  const vaultIndexRef = posix.join(layout.transient.vaultIndexes, "vault-index.json");
+  const candidateNotePaths = selectCandidateNotes(vaultIndex, freeformCapture);
+  const candidateNotes = await Promise.all(
+    candidateNotePaths.map(async (candidatePath) => ({
+      path: candidatePath,
+      content: await readFile(join(vaultPath, candidatePath), "utf8")
+    }))
+  );
+
+  await mkdir(join(vaultPath, layout.transient.vaultIndexes), { recursive: true });
+  await writeFile(join(vaultPath, vaultIndexRef), JSON.stringify(vaultIndex, null, 2));
 
   const plan = await proposalEngine.propose({
     schemaVersion: 1,
     sessionInboxPath: inbox.relativePath,
     freeformCapture,
-    vaultIndexRef: "stubbed-vault-index",
-    candidateNotePaths: []
+    vaultIndexRef,
+    vaultIndex,
+    candidateNotes
   });
   const reviewRendering = renderReview(plan);
 
