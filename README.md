@@ -15,17 +15,15 @@ Onix starts an Ephemeral Session, gives you a temporary Session Inbox for freefo
 Run the development CLI from this repository with:
 
 ```bash
-pnpm onix -- <command>
+pnpm onix <command>
 ```
-
-The extra `--` passes the following arguments through pnpm to Onix.
 
 ## Commands
 
 ### Start an Ephemeral Session
 
 ```bash
-pnpm onix -- --vault /path/to/vault start
+pnpm onix --vault /path/to/vault start
 ```
 
 `--vault` is required. Onix does not infer the target vault from the current working directory, so session state is not created in the wrong place by accident.
@@ -46,10 +44,10 @@ Only one Active Session can exist at a time. Running `start` again for the same 
 These command surfaces exist for the MVP workflow:
 
 ```bash
-pnpm onix -- --vault /path/to/vault close
-pnpm onix -- review
-pnpm onix -- apply
-pnpm onix -- status
+pnpm onix --vault /path/to/vault close
+pnpm onix review
+pnpm onix apply
+pnpm onix status
 ```
 
 `close`, `review`, and `apply` are scaffolded. `status` currently prints the Operational Store layout.
