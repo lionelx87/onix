@@ -1,5 +1,6 @@
 import { Command } from "@commander-js/extra-typings";
 import { storeLayout } from "./operational-store/layout.js";
+import { closeSession, NoActiveSessionError, SessionInboxNotFoundError } from "./session-close.js";
 import { ActiveSessionAlreadyExistsError, startSession } from "./session-start.js";
 
 export function createCli(): Command {
@@ -32,8 +33,20 @@ export function createCli(): Command {
     .command("close")
     .description("close the Active Session and generate a reviewable Patch Plan")
     .option("--stub <fixture>", "use a deterministic Proposal Engine fixture")
-    .action(() => {
-      printPlaceholder("Session Closing");
+    .action(async () => {
+      const options = program.opts();
+      const vaultPath = requireVaultPath(program, options.vault);
+
+      const { plan, reviewRendering } = await closeSession(vaultPath).catch((error: unknown) => {
+        if (isNoActiveSessionError(error) || isSessionInboxNotFoundError(error)) {
+          program.error(error.message);
+        }
+
+        throw error;
+      });
+
+      console.log(`Generated Patch Plan: ${plan.planId}`);
+      console.log(reviewRendering);
     });
 
   program
@@ -86,5 +99,22 @@ function isActiveSessionAlreadyExistsError(error: unknown): error is ActiveSessi
     (error instanceof Error &&
       (error.name === "ActiveSessionAlreadyExistsError" ||
         error.message.startsWith("An Ephemeral Session is already active:")))
+  );
+}
+
+function isNoActiveSessionError(error: unknown): error is NoActiveSessionError {
+  return (
+    error instanceof NoActiveSessionError ||
+    (error instanceof Error &&
+      (error.name === "NoActiveSessionError" || error.message.startsWith("No Active Session found.")))
+  );
+}
+
+function isSessionInboxNotFoundError(error: unknown): error is SessionInboxNotFoundError {
+  return (
+    error instanceof SessionInboxNotFoundError ||
+    (error instanceof Error &&
+      (error.name === "SessionInboxNotFoundError" ||
+        error.message.startsWith("Active Session state exists, but its Session Inbox could not be located.")))
   );
 }

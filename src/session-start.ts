@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { join, posix } from "node:path";
 import { storeLayout } from "./operational-store/layout.js";
 
@@ -6,6 +7,7 @@ const visibleSessionInboxDirectory = posix.join("Onix", "Sessions");
 
 export type ActiveSession = {
   schemaVersion: 1;
+  sessionId: string;
   startedAt: string;
   inboxPath: string;
 };
@@ -34,18 +36,23 @@ export async function startSession(vaultPath: string, now = new Date()): Promise
   const inboxPath = posix.join(visibleSessionInboxDirectory, `session-inbox-${timestamp}.md`);
   const activeSession: ActiveSession = {
     schemaVersion: 1,
+    sessionId: randomUUID(),
     startedAt: now.toISOString(),
     inboxPath
   };
 
   await mkdir(join(vaultPath, visibleSessionInboxDirectory), { recursive: true });
   await mkdir(join(vaultPath, ".onix", "state"), { recursive: true });
-  await writeFile(join(vaultPath, inboxPath), "", { flag: "wx" });
+  await writeFile(join(vaultPath, inboxPath), renderSessionInbox(activeSession), { flag: "wx" });
   await writeFile(join(vaultPath, layout.transient.activeSession), JSON.stringify(activeSession, null, 2), {
     flag: "wx"
   });
 
   return { activeSession };
+}
+
+function renderSessionInbox(activeSession: ActiveSession): string {
+  return `---\nonix_session_id: ${activeSession.sessionId}\nonix_started_at: ${activeSession.startedAt}\n---\n`;
 }
 
 async function readActiveSession(vaultPath: string): Promise<ActiveSession | undefined> {
