@@ -52,6 +52,7 @@ After successful write verification, the **Session Inbox** is deleted. The tool 
 - Use the glossary in `CONTEXT.md` as the domain language for implementation and documentation.
 - Start with a local **CLI Interface**, not a graphical application.
 - Use **Local Vault Operation** only. The tool does not provide cloud sync, hosted accounts, backend state, or multi-user behavior.
+- Commands that create or modify session state require an explicit vault path; **Session Start** must not infer the target vault from the current working directory.
 - A **Session Start** action creates a dated **Session Inbox** note and records it as the only **Active Session**.
 - Only one **Active Session** can exist at a time.
 - The **Session Inbox** lives inside the Obsidian vault and is deleted after successful **Session Closing** and write verification.

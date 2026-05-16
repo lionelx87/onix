@@ -35,6 +35,8 @@ Commander is enough for the current command surface and keeps help output, subco
 
 Vitest supports fast local and CI tests for the CLI surface, vault fixtures, validator behavior, and patch applier without live LLM calls.
 
+Session-state commands require an explicit `--vault <path>` argument. The CLI must not silently use the current working directory as the target vault for **Session Start**, because that can create an **Active Session** outside the vault that **Session Closing** later operates on.
+
 ## Operational Store Layout
 
 The default **Operational Store** root is `.onix/` inside the target vault.

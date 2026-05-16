@@ -1,18 +1,31 @@
 import { Command } from "@commander-js/extra-typings";
 import { storeLayout } from "./operational-store/layout.js";
+import { ActiveSessionAlreadyExistsError, startSession } from "./session-start.js";
 
 export function createCli(): Command {
   const program = new Command()
     .name("onix")
     .description("Local CLI for Learning Capture workflows in an Obsidian vault")
     .version("0.1.0")
-    .option("--vault <path>", "path to the local Obsidian vault", process.cwd());
+    .option("--vault <path>", "path to the local Obsidian vault");
 
   program
     .command("start")
     .description("start an Ephemeral Session and create a dated Session Inbox")
-    .action(() => {
-      printPlaceholder("Session Start");
+    .action(async () => {
+      const options = program.opts();
+      const vaultPath = requireVaultPath(program, options.vault);
+
+      const { activeSession } = await startSession(vaultPath).catch((error: unknown) => {
+        if (isActiveSessionAlreadyExistsError(error)) {
+          program.error(error.message);
+        }
+
+        throw error;
+      });
+
+      console.log("Started Ephemeral Session");
+      console.log(`Session Inbox: ${activeSession.inboxPath}`);
     });
 
   program
@@ -56,4 +69,22 @@ export function createCli(): Command {
 
 function printPlaceholder(surface: string): void {
   console.log(`${surface} is scaffolded. Implementation will land in a later tracer bullet.`);
+}
+
+function requireVaultPath(program: Command, vaultPath: string | undefined): string {
+  if (vaultPath === undefined) {
+    program.error("Missing vault path. Run: onix --vault <path> start");
+    throw new Error("Missing vault path");
+  }
+
+  return vaultPath;
+}
+
+function isActiveSessionAlreadyExistsError(error: unknown): error is ActiveSessionAlreadyExistsError {
+  return (
+    error instanceof ActiveSessionAlreadyExistsError ||
+    (error instanceof Error &&
+      (error.name === "ActiveSessionAlreadyExistsError" ||
+        error.message.startsWith("An Ephemeral Session is already active:")))
+  );
 }
