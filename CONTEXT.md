@@ -1,4 +1,4 @@
-# Ideas Explorer
+# Onix
 
 This context describes the language for capturing, clarifying, and later recovering learning gathered during work sessions.
 
