@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+
+# Transient Operational Store data. Stable tool state remains committable.
+.onix/state/
+.onix/indexes/
+.onix/plans/
+.onix/approvals/
+.onix/logs/
+.onix/cache/
+.onix/sessions/

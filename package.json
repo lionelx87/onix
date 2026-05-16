@@ -1,0 +1,34 @@
+{
+  "name": "onix",
+  "version": "0.1.0",
+  "description": "Local CLI-first Learning Capture tool for Obsidian vaults.",
+  "type": "module",
+  "packageManager": "pnpm@11.1.2",
+  "bin": {
+    "onix": "./dist/main.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/main.ts",
+    "onix": "tsx src/main.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "engines": {
+    "node": ">=24 <27"
+  },
+  "dependencies": {
+    "@commander-js/extra-typings": "^14.0.0",
+    "commander": "^14.0.0",
+    "zod": "^4.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.0",
+    "vitest": "^4.0.7"
+  }
+}

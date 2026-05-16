@@ -1,0 +1,10 @@
+{
+  "$schema": "../src/config/onix-config.schema.json",
+  "schemaVersion": 1,
+  "operationalStore": ".onix",
+  "writeBoundary": {
+    "thematicNotes": "Knowledge",
+    "researchInbox": "Research/Inbox.md",
+    "referenceLibrary": "References"
+  }
+}
