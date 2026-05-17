@@ -39,18 +39,34 @@ The Session Inbox is plain Markdown with minimal `onix_session_id` frontmatter, 
 
 Only one Active Session can exist at a time. Running `start` again for the same vault fails until the current session is closed.
 
-### Other Commands
-
-These command surfaces exist for the MVP workflow:
+### Close an Active Session
 
 ```bash
 pnpm onix --vault /path/to/vault close
+```
+
+`--vault` is required. `close` reads the Active Session, finds the Session Inbox even if the visible note was renamed, strips the session frontmatter, updates the Vault Index, selects Candidate Notes, and sends that input to the Proposal Engine.
+
+The current Proposal Engine is deterministic and provider-independent. It writes a structured Patch Plan and prints a Markdown Review Rendering:
+
+```text
+/path/to/vault/.onix/indexes/vault-index.json
+/path/to/vault/.onix/plans/stubbed-plan.json
+```
+
+The generated Patch Plan can contain Consolidated Knowledge, Research Candidates, Sensitive Candidates, and No Consolidation Candidates. It records the original Learning Capture, source trace, Primary Topic, Related Topics, destination path when applicable, and proposed content. Tests use deterministic fixtures and do not call a live LLM.
+
+### Scaffolded Commands
+
+These command surfaces exist for the MVP workflow but are not fully implemented yet:
+
+```bash
 pnpm onix review
 pnpm onix apply
 pnpm onix status
 ```
 
-`close` currently uses a deterministic stubbed Proposal Engine to write `.onix/plans/stubbed-plan.json` and print a Markdown Review Rendering. `review` and `apply` are scaffolded. `status` currently prints the Operational Store layout.
+`review` and `apply` are scaffolded. `status` currently prints the Operational Store layout.
 
 ## Development
 

@@ -47,6 +47,9 @@ export const patchPlanSchema = z.object({
         "sensitive-candidate"
       ]),
       destinationPath: z.string().min(1).optional(),
+      learningCapture: z.string().min(1),
+      primaryTopic: z.string().min(1).optional(),
+      relatedTopics: z.array(z.string().min(1)).default([]),
       sourceTrace: z.string().min(1),
       proposedContent: z.string()
     })
