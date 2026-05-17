@@ -71,7 +71,24 @@ Resume or start the interactive Integrated Review for a generated Patch Plan:
 pnpm onix --vault /path/to/vault review stubbed-plan
 ```
 
-`--vault` is required. The argument is the Patch Plan identifier stored under `.onix/plans/<plan-id>.json`. The interactive review presents each pending item with its destination note, source trace, Learning Capture, and proposed content. Choose actions with the prompted keys: approve, edit, move, split, discard, skip, or quit.
+`--vault` is required. The argument is the Patch Plan identifier stored under `.onix/plans/<plan-id>.json`. The interactive review presents each pending item with progress, destination note, source trace, Learning Capture, and proposed content. Choose actions with the prompted keys: approve, edit, move, split, discard, next, previous, skip, or quit. `next`, `previous`, `skip`, and `quit` do not record a decision, so a review can be resumed later.
+
+Human editing uses your terminal editor. Onix opens `$VISUAL` first, then `$EDITOR`, with the proposed content already written into a temporary Markdown file:
+
+```bash
+VISUAL="code --wait" pnpm onix --vault /path/to/vault review stubbed-plan
+EDITOR=vim pnpm onix --vault /path/to/vault review stubbed-plan
+```
+
+For `edit`, saving and closing the editor records an `edit` Review Action with the saved file content. If no editor is configured, the editor exits with a failure code, or the saved content is empty, the item remains pending and no Approval State is recorded.
+
+For `split`, Onix opens a template with the proposed content prefilled. Keep at least two non-empty sections separated by this marker line:
+
+```text
+--- part ---
+```
+
+Saving a valid template records a `split` Review Action. Invalid templates remain pending and do not write Approval State.
 
 Review Actions write structured Approval State:
 

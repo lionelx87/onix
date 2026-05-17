@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { mkdir, mkdtemp, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
 import { PassThrough, Writable } from "node:stream";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -368,6 +368,12 @@ describe("Integrated Review", () => {
   test("runs an interactive review from close and records Review Actions without low-level flags", async () => {
     const vault = await mkdtemp(join(tmpdir(), "onix-vault-"));
     const output = createWritableCapture();
+    const editor = await writeSequentialFakeEditor("interactive-review-editor.mjs", [
+      "Edited durable learning.",
+      "--- part ---\nFirst split learning.\n--- part ---\nSecond split learning.\n"
+    ]);
+    const originalVisual = process.env.VISUAL;
+    const originalEditor = process.env.EDITOR;
 
     await createCli().exitOverride().parseAsync(["node", "onix", "--vault", vault, "start"]);
 
@@ -378,23 +384,27 @@ describe("Integrated Review", () => {
       `${await readFile(inboxPath, "utf8")}\nApprove this durable learning.\nEdit this durable learning.\nMove this durable learning.\nSplit this durable learning.\nDiscard this reminder.\n`
     );
 
-    await createCli({
-      input: createReadableInput([
-        "a",
-        "e",
-        "Edited durable learning.",
-        "m",
-        "Knowledge/Moved.md",
-        "s",
-        "First split learning.",
-        "Second split learning.",
-        "",
-        "d"
-      ]),
-      output
-    })
-      .exitOverride()
-      .parseAsync(["node", "onix", "--vault", vault, "close"]);
+    process.env.VISUAL = editor;
+    delete process.env.EDITOR;
+
+    try {
+      await createCli({
+        input: createReadableInput([
+          "a",
+          "e",
+          "m",
+          "Knowledge/Moved.md",
+          "s",
+          "d"
+        ]),
+        output
+      })
+        .exitOverride()
+        .parseAsync(["node", "onix", "--vault", vault, "close"]);
+    } finally {
+      restoreEnv("VISUAL", originalVisual);
+      restoreEnv("EDITOR", originalEditor);
+    }
 
     const approvalState = JSON.parse(
       await readFile(join(vault, ".onix", "approvals", "stubbed-plan.json"), "utf8")
@@ -481,6 +491,150 @@ describe("Integrated Review", () => {
       }
     ]);
   });
+
+  test("opens VISUAL for interactive edit and records the saved content as Approval State", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "onix-vault-"));
+    const editor = await writeFakeEditor("edited-by-visual.mjs", "CLI decisions stay testable after editor review.");
+    const originalVisual = process.env.VISUAL;
+    const originalEditor = process.env.EDITOR;
+
+    await writeReviewPlan(vault);
+    process.env.VISUAL = editor;
+    delete process.env.EDITOR;
+
+    try {
+      await createCli({ input: createReadableInput(["e", "q"]), output: createWritableCapture() })
+        .exitOverride()
+        .parseAsync(["node", "onix", "--vault", vault, "review", "review-plan"]);
+    } finally {
+      restoreEnv("VISUAL", originalVisual);
+      restoreEnv("EDITOR", originalEditor);
+    }
+
+    expect((await readApprovalState(vault)).decisions).toEqual([
+      {
+        itemId: "item-1",
+        action: "edit",
+        destinationPath: "Knowledge/CLI.md",
+        content: "CLI decisions stay testable after editor review."
+      }
+    ]);
+  });
+
+  test("opens VISUAL for interactive split and records valid template parts as Approval State", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "onix-vault-"));
+    const editor = await writeFakeEditor(
+      "split-by-visual.mjs",
+      "Split item guidance ignored before first marker.\n--- part ---\nCLI decisions should stay testable.\n--- part ---\nReview actions should be explicit.\n"
+    );
+    const originalVisual = process.env.VISUAL;
+    const originalEditor = process.env.EDITOR;
+
+    await writeReviewPlan(vault);
+    process.env.VISUAL = editor;
+    delete process.env.EDITOR;
+
+    try {
+      await createCli({ input: createReadableInput(["s", "q"]), output: createWritableCapture() })
+        .exitOverride()
+        .parseAsync(["node", "onix", "--vault", vault, "review", "review-plan"]);
+    } finally {
+      restoreEnv("VISUAL", originalVisual);
+      restoreEnv("EDITOR", originalEditor);
+    }
+
+    expect((await readApprovalState(vault)).decisions).toEqual([
+      {
+        itemId: "item-1",
+        action: "split",
+        parts: [
+          {
+            destinationPath: "Knowledge/CLI.md",
+            content: "CLI decisions should stay testable."
+          },
+          {
+            destinationPath: "Knowledge/CLI.md",
+            content: "Review actions should be explicit."
+          }
+        ]
+      }
+    ]);
+  });
+
+  test("leaves an item pending when the editor fails during interactive edit", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "onix-vault-"));
+    const editor = await writeFailingFakeEditor("failing-editor.mjs");
+    const output = createWritableCapture();
+    const originalVisual = process.env.VISUAL;
+    const originalEditor = process.env.EDITOR;
+
+    await writeReviewPlan(vault);
+    process.env.VISUAL = editor;
+    delete process.env.EDITOR;
+
+    try {
+      await createCli({ input: createReadableInput(["e", "q"]), output })
+        .exitOverride()
+        .parseAsync(["node", "onix", "--vault", vault, "review", "review-plan"]);
+    } finally {
+      restoreEnv("VISUAL", originalVisual);
+      restoreEnv("EDITOR", originalEditor);
+    }
+
+    await expect(readFile(join(vault, ".onix", "approvals", "review-plan.json"), "utf8")).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+    expect(output.content()).toContain("Edit canceled for item-1; item remains pending.");
+  });
+
+  test("leaves an item pending when the split template is invalid", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "onix-vault-"));
+    const editor = await writeFakeEditor("invalid-split-editor.mjs", "--- part ---\nOnly one part.\n");
+    const output = createWritableCapture();
+    const originalVisual = process.env.VISUAL;
+    const originalEditor = process.env.EDITOR;
+
+    await writeReviewPlan(vault);
+    process.env.VISUAL = editor;
+    delete process.env.EDITOR;
+
+    try {
+      await createCli({ input: createReadableInput(["s", "q"]), output })
+        .exitOverride()
+        .parseAsync(["node", "onix", "--vault", vault, "review", "review-plan"]);
+    } finally {
+      restoreEnv("VISUAL", originalVisual);
+      restoreEnv("EDITOR", originalEditor);
+    }
+
+    await expect(readFile(join(vault, ".onix", "approvals", "review-plan.json"), "utf8")).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+    expect(output.content()).toContain("Split canceled for item-1; item remains pending.");
+  });
+
+  test("shows review progress and supports next and previous without recording decisions", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "onix-vault-"));
+    const output = createWritableCapture();
+
+    await writeReviewPlan(vault);
+
+    await createCli({ input: createReadableInput(["n", "p", "a", "q"]), output })
+      .exitOverride()
+      .parseAsync(["node", "onix", "--vault", vault, "review", "review-plan"]);
+
+    expect((await readApprovalState(vault)).decisions).toEqual([
+      {
+        itemId: "item-1",
+        action: "approve",
+        destinationPath: "Knowledge/CLI.md",
+        content: "CLI decisions should stay testable."
+      }
+    ]);
+    expect(output.content()).toContain("Pending Review Items: 2");
+    expect(output.content()).toContain("Item 1 of 2");
+    expect(output.content()).toContain("Item 2 of 2");
+  });
 });
 
 async function writeReviewPlan(vault: string): Promise<void> {
@@ -546,4 +700,45 @@ function createReadableInput(answers: string[]): PassThrough {
   input.write(`${answers.join("\n")}\n`);
 
   return input;
+}
+
+async function writeFakeEditor(fileName: string, content: string): Promise<string> {
+  return await writeSequentialFakeEditor(fileName, [content]);
+}
+
+async function writeSequentialFakeEditor(fileName: string, contents: string[]): Promise<string> {
+  const editorPath = join(await mkdtemp(join(tmpdir(), "onix-editor-")), fileName);
+  await writeFile(
+    editorPath,
+    [
+      "#!/usr/bin/env node",
+      'import { existsSync, readFileSync, writeFileSync } from "node:fs";',
+      'const counterPath = `${process.argv[1]}.count`;',
+      "const count = existsSync(counterPath) ? Number(readFileSync(counterPath, 'utf8')) : 0;",
+      `const contents = ${JSON.stringify(contents)};`,
+      "writeFileSync(process.argv[2], contents[Math.min(count, contents.length - 1)]);",
+      "writeFileSync(counterPath, String(count + 1));",
+      ""
+    ].join("\n")
+  );
+  await chmod(editorPath, 0o755);
+
+  return editorPath;
+}
+
+async function writeFailingFakeEditor(fileName: string): Promise<string> {
+  const editorPath = join(await mkdtemp(join(tmpdir(), "onix-editor-")), fileName);
+  await writeFile(editorPath, "#!/usr/bin/env node\nprocess.exit(1);\n");
+  await chmod(editorPath, 0o755);
+
+  return editorPath;
+}
+
+function restoreEnv(name: "VISUAL" | "EDITOR", value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+
+  process.env[name] = value;
 }

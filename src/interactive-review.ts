@@ -1,3 +1,7 @@
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { spawn } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 import {
   readApprovalState,
@@ -21,6 +25,8 @@ export async function runInteractiveReview(vaultPath: string, planId: string, io
   writeLine(io.output, "");
   writeLine(io.output, "Interactive Integrated Review");
   writeLine(io.output, `Patch Plan: ${plan.planId}`);
+  writeLine(io.output, `Pending Review Items: ${pendingItems.length}`);
+  writeLine(io.output, `Already Decided Items: ${decidedItemIds.size}`);
 
   if (pendingItems.length === 0) {
     writeLine(io.output, "No pending Review Actions.");
@@ -28,32 +34,68 @@ export async function runInteractiveReview(vaultPath: string, planId: string, io
   }
 
   const review = new LinePrompt(io.input, io.output);
+  let currentIndex = 0;
 
-  for (const item of pendingItems) {
-    renderItem(io.output, item);
+  while (currentIndex < pendingItems.length) {
+    const item = pendingItems[currentIndex];
+    if (item === undefined) {
+      return;
+    }
 
-    const action = await askForAction(review, item);
+    renderItem(io.output, item, currentIndex, pendingItems.length);
+
+    const action = await askForAction(review, io.output, item);
     if (action === "quit") {
       writeLine(io.output, "Review paused.");
       return;
     }
 
-    if (action === "skip") {
-      writeLine(io.output, `Skipped ${item.id}`);
+    if (action === "next" || action === "skip") {
+      if (action === "skip") {
+        writeLine(io.output, `Skipped ${item.id}`);
+      }
+
+      if (currentIndex === pendingItems.length - 1) {
+        if (action === "next") {
+          writeLine(io.output, "Already at last pending item.");
+          continue;
+        }
+
+        currentIndex += 1;
+        continue;
+      }
+
+      currentIndex += 1;
+      continue;
+    }
+
+    if (action === "previous") {
+      if (currentIndex === 0) {
+        writeLine(io.output, "Already at first pending item.");
+      } else {
+        currentIndex -= 1;
+      }
+
       continue;
     }
 
     await recordReviewAction(vaultPath, planId, action);
     writeLine(io.output, `Recorded ${action.action} for ${action.itemId}`);
+    currentIndex += 1;
   }
 }
 
 type PendingItem = PatchPlan["items"][number];
+type InteractiveAction = ReviewActionInput | "next" | "previous" | "skip" | "quit";
 
-async function askForAction(review: LinePrompt, item: PendingItem): Promise<ReviewActionInput | "skip" | "quit"> {
+async function askForAction(
+  review: LinePrompt,
+  output: Writable,
+  item: PendingItem
+): Promise<InteractiveAction> {
   while (true) {
     const answerInput = await review.question(
-      "Choose action [a]pprove, [e]dit, [m]ove, [s]plit, [d]iscard, s[k]ip, [q]uit: "
+      "Choose action [a]pprove, [e]dit, [m]ove, [s]plit, [d]iscard, [n]ext, [p]revious, s[k]ip, [q]uit: "
     );
     if (answerInput === undefined) {
       return "quit";
@@ -66,7 +108,12 @@ async function askForAction(review: LinePrompt, item: PendingItem): Promise<Revi
     }
 
     if (answer === "e" || answer === "edit") {
-      const content = (await review.question("Edited content: ")) ?? "";
+      const content = await editContentInEditor(item.proposedContent);
+      if (content === undefined) {
+        writeLine(output, `Edit canceled for ${item.id}; item remains pending.`);
+        continue;
+      }
+
       return { action: "edit", itemId: item.id, content };
     }
 
@@ -76,7 +123,13 @@ async function askForAction(review: LinePrompt, item: PendingItem): Promise<Revi
     }
 
     if (answer === "s" || answer === "split") {
-      return { action: "split", itemId: item.id, parts: await askForSplitParts(review) };
+      const parts = await splitContentInEditor(item.proposedContent);
+      if (parts === undefined) {
+        writeLine(output, `Split canceled for ${item.id}; item remains pending.`);
+        continue;
+      }
+
+      return { action: "split", itemId: item.id, parts };
     }
 
     if (answer === "d" || answer === "discard") {
@@ -87,30 +140,105 @@ async function askForAction(review: LinePrompt, item: PendingItem): Promise<Revi
       return "skip";
     }
 
+    if (answer === "n" || answer === "next") {
+      return "next";
+    }
+
+    if (answer === "p" || answer === "previous") {
+      return "previous";
+    }
+
     if (answer === "q" || answer === "quit") {
       return "quit";
     }
   }
 }
 
-async function askForSplitParts(review: LinePrompt): Promise<string[]> {
-  const parts = [
-    (await review.question("First split part: ")) ?? "",
-    (await review.question("Second split part: ")) ?? ""
-  ];
+async function editContentInEditor(initialContent: string): Promise<string | undefined> {
+  const editedContent = await openEditor(initialContent, ".md");
+  if (editedContent === undefined || editedContent.trim().length === 0) {
+    return undefined;
+  }
 
-  while (true) {
-    const part = await review.question("Additional split part, blank to finish: ");
-    if (part === undefined || part.trim().length === 0) {
-      return parts;
+  return editedContent;
+}
+
+async function splitContentInEditor(proposedContent: string): Promise<string[] | undefined> {
+  const editedTemplate = await openEditor(splitTemplate(proposedContent), ".md");
+  if (editedTemplate === undefined) {
+    return undefined;
+  }
+
+  const parts = parseSplitTemplate(editedTemplate);
+  if (parts.length < 2) {
+    return undefined;
+  }
+
+  return parts;
+}
+
+function splitTemplate(proposedContent: string): string {
+  return [
+    "# Onix split template",
+    "# Keep at least two non-empty parts. Text before the first marker is ignored.",
+    "# Separate parts with a line containing exactly: --- part ---",
+    "--- part ---",
+    proposedContent,
+    "--- part ---",
+    ""
+  ].join("\n");
+}
+
+function parseSplitTemplate(template: string): string[] {
+  const marker = /^--- part ---$/m;
+  return template
+    .split(marker)
+    .slice(1)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+}
+
+async function openEditor(initialContent: string, extension: string): Promise<string | undefined> {
+  const editor = process.env.VISUAL ?? process.env.EDITOR;
+  if (editor === undefined || editor.trim().length === 0) {
+    return undefined;
+  }
+
+  const directory = await mkdtemp(join(tmpdir(), "onix-review-"));
+  const filePath = join(directory, `review-action${extension}`);
+
+  try {
+    await writeFile(filePath, initialContent);
+    const exitCode = await runEditor(editor, filePath);
+    if (exitCode !== 0) {
+      return undefined;
     }
 
-    parts.push(part);
+    return await readFile(filePath, "utf8");
+  } finally {
+    await rm(directory, { force: true, recursive: true });
   }
 }
 
-function renderItem(output: Writable, item: PendingItem): void {
+async function runEditor(editor: string, filePath: string): Promise<number | null> {
+  return await new Promise((resolve, reject) => {
+    const child = spawn(`${editor} ${quoteShellArgument(filePath)}`, {
+      shell: true,
+      stdio: "inherit"
+    });
+
+    child.on("error", reject);
+    child.on("close", (code) => resolve(code));
+  });
+}
+
+function quoteShellArgument(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function renderItem(output: Writable, item: PendingItem, index: number, total: number): void {
   writeLine(output, "");
+  writeLine(output, `Item ${index + 1} of ${total}`);
   writeLine(output, `Destination: ${item.destinationPath ?? "No Consolidation"}`);
   writeLine(output, `ID: ${item.id}`);
   writeLine(output, `Kind: ${item.kind}`);
