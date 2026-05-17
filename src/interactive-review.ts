@@ -9,6 +9,7 @@ import {
   recordReviewAction,
   type ReviewActionInput
 } from "./approval-state.js";
+import { createPalette, type Palette } from "./cli/color.js";
 import type { PatchPlan } from "./proposal-engine/contract.js";
 
 export type InteractiveReviewIo = {
@@ -21,15 +22,16 @@ export async function runInteractiveReview(vaultPath: string, planId: string, io
   const approvalState = await readApprovalState(vaultPath, planId);
   const decidedItemIds = new Set(approvalState.decisions.map((decision) => decision.itemId));
   const pendingItems = plan.items.filter((item) => !decidedItemIds.has(item.id));
+  const palette = createPalette(io.output as { isTTY?: boolean });
 
   writeLine(io.output, "");
-  writeLine(io.output, "Interactive Integrated Review");
-  writeLine(io.output, `Patch Plan: ${plan.planId}`);
-  writeLine(io.output, `Pending Review Items: ${pendingItems.length}`);
-  writeLine(io.output, `Already Decided Items: ${decidedItemIds.size}`);
+  writeLine(io.output, palette.cyan("Interactive Integrated Review"));
+  writeLine(io.output, `${palette.dim("Patch Plan:")} ${plan.planId}`);
+  writeLine(io.output, `${palette.dim("Pending Review Items:")} ${pendingItems.length}`);
+  writeLine(io.output, `${palette.dim("Already Decided Items:")} ${decidedItemIds.size}`);
 
   if (pendingItems.length === 0) {
-    writeLine(io.output, "No pending Review Actions.");
+    writeLine(io.output, palette.dim("No pending Review Actions."));
     return;
   }
 
@@ -42,22 +44,22 @@ export async function runInteractiveReview(vaultPath: string, planId: string, io
       return;
     }
 
-    renderItem(io.output, item, currentIndex, pendingItems.length);
+    renderItem(io.output, palette, item, currentIndex, pendingItems.length);
 
-    const action = await askForAction(review, io.output, item);
+    const action = await askForAction(review, io.output, palette, item);
     if (action === "quit") {
-      writeLine(io.output, "Review paused.");
+      writeLine(io.output, palette.yellow("Review paused."));
       return;
     }
 
     if (action === "next" || action === "skip") {
       if (action === "skip") {
-        writeLine(io.output, `Skipped ${item.id}`);
+        writeLine(io.output, palette.yellow(`Skipped ${item.id}`));
       }
 
       if (currentIndex === pendingItems.length - 1) {
         if (action === "next") {
-          writeLine(io.output, "Already at last pending item.");
+          writeLine(io.output, palette.yellow("Already at last pending item."));
           continue;
         }
 
@@ -71,7 +73,7 @@ export async function runInteractiveReview(vaultPath: string, planId: string, io
 
     if (action === "previous") {
       if (currentIndex === 0) {
-        writeLine(io.output, "Already at first pending item.");
+        writeLine(io.output, palette.yellow("Already at first pending item."));
       } else {
         currentIndex -= 1;
       }
@@ -80,7 +82,7 @@ export async function runInteractiveReview(vaultPath: string, planId: string, io
     }
 
     await recordReviewAction(vaultPath, planId, action);
-    writeLine(io.output, `Recorded ${action.action} for ${action.itemId}`);
+    writeLine(io.output, palette.green(`Recorded ${action.action} for ${action.itemId}`));
     currentIndex += 1;
   }
 }
@@ -91,12 +93,13 @@ type InteractiveAction = ReviewActionInput | "next" | "previous" | "skip" | "qui
 async function askForAction(
   review: LinePrompt,
   output: Writable,
+  palette: Palette,
   item: PendingItem
 ): Promise<InteractiveAction> {
+  const promptText = buildActionPrompt(palette);
+
   while (true) {
-    const answerInput = await review.question(
-      "Choose action [a]pprove, [e]dit, [m]ove, [s]plit, [d]iscard, [n]ext, [p]revious, s[k]ip, [q]uit: "
-    );
+    const answerInput = await review.question(promptText);
     if (answerInput === undefined) {
       return "quit";
     }
@@ -110,7 +113,7 @@ async function askForAction(
     if (answer === "e" || answer === "edit") {
       const content = await editContentInEditor(item.proposedContent);
       if (content === undefined) {
-        writeLine(output, `Edit canceled for ${item.id}; item remains pending.`);
+        writeLine(output, palette.yellow(`Edit canceled for ${item.id}; item remains pending.`));
         continue;
       }
 
@@ -125,7 +128,7 @@ async function askForAction(
     if (answer === "s" || answer === "split") {
       const parts = await splitContentInEditor(item.proposedContent);
       if (parts === undefined) {
-        writeLine(output, `Split canceled for ${item.id}; item remains pending.`);
+        writeLine(output, palette.yellow(`Split canceled for ${item.id}; item remains pending.`));
         continue;
       }
 
@@ -236,24 +239,55 @@ function quoteShellArgument(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-function renderItem(output: Writable, item: PendingItem, index: number, total: number): void {
+function renderItem(
+  output: Writable,
+  palette: Palette,
+  item: PendingItem,
+  index: number,
+  total: number
+): void {
   writeLine(output, "");
-  writeLine(output, `Item ${index + 1} of ${total}`);
-  writeLine(output, `Destination: ${item.destinationPath ?? "No Consolidation"}`);
-  writeLine(output, `ID: ${item.id}`);
-  writeLine(output, `Kind: ${item.kind}`);
-  writeLine(output, `Source: ${item.sourceTrace}`);
-  writeLine(output, `Learning Capture: ${item.learningCapture}`);
+  writeLine(output, palette.cyan(`Item ${index + 1} of ${total}`));
+  writeLine(
+    output,
+    `${palette.dim("Destination:")} ${item.destinationPath ?? palette.dim("No Consolidation")}`
+  );
+  writeLine(output, `${palette.dim("ID:")} ${palette.dim(item.id)}`);
+  writeLine(output, `${palette.dim("Kind:")} ${colorizeKind(palette, item.kind)}`);
+  writeLine(output, `${palette.dim("Source:")} ${palette.dim(item.sourceTrace)}`);
+  writeLine(output, `${palette.dim("Learning Capture:")} ${item.learningCapture}`);
 
   if (item.primaryTopic !== undefined) {
-    writeLine(output, `Primary Topic: ${item.primaryTopic}`);
+    writeLine(output, `${palette.dim("Primary Topic:")} ${item.primaryTopic}`);
   }
 
   if (item.relatedTopics.length > 0) {
-    writeLine(output, `Related Topics: ${item.relatedTopics.join(", ")}`);
+    writeLine(output, `${palette.dim("Related Topics:")} ${item.relatedTopics.join(", ")}`);
   }
 
-  writeLine(output, `Proposed Content: ${item.proposedContent}`);
+  writeLine(output, `${palette.dim("Proposed Content:")} ${item.proposedContent}`);
+}
+
+function colorizeKind(palette: Palette, kind: PendingItem["kind"]): string {
+  switch (kind) {
+    case "consolidated-knowledge":
+      return palette.green(kind);
+    case "knowledge-refinement":
+      return palette.blue(kind);
+    case "research-candidate":
+      return palette.yellow(kind);
+    case "reference-item":
+      return palette.magenta(kind);
+    case "sensitive-candidate":
+      return palette.red(kind);
+    case "no-consolidation-candidate":
+      return palette.dim(kind);
+  }
+}
+
+function buildActionPrompt(palette: Palette): string {
+  const key = (letter: string): string => `[${palette.bold(letter)}]`;
+  return `Choose action ${key("a")}pprove, ${key("e")}dit, ${key("m")}ove, ${key("s")}plit, ${key("d")}iscard, ${key("n")}ext, ${key("p")}revious, s${key("k")}ip, ${key("q")}uit: `;
 }
 
 function normalizeAnswer(answer: string): string {

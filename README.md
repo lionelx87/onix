@@ -191,6 +191,14 @@ pnpm onix --vault /path/to/vault status
 
 Shows the resolved vault path, the persisted default (if any), the Active Session (id, inbox path, started timestamp), all Patch Plans with their decision progress (`X of Y decided, Z pending`) and any Rule Candidates still awaiting approval, and the count of approved Classification Rules. When neither `--vault` nor a default is configured, `status` prints a short hint pointing to `onix use <path>` instead of failing.
 
+### Color output
+
+The interactive Integrated Review uses ANSI colors when the output stream is a TTY: cyan for headings, dim for metadata (`ID`, `Source`, prefixes), per-kind colors for `Kind` (e.g. green for `consolidated-knowledge`, magenta for `reference-item`, red for `sensitive-candidate`), green for `Recorded …`, yellow for `Skipped`/`canceled` messages, and bold for the action key inside each `[a]pprove` bracket. Color is disabled automatically when the output is piped/redirected or when the `NO_COLOR` env var is set:
+
+```bash
+NO_COLOR=1 pnpm onix --vault /path/to/vault review stubbed-plan
+```
+
 ## Development
 
 ```bash
