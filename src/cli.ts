@@ -7,10 +7,10 @@ import { approveClassificationRule } from "./classification-rules.js";
 import { readGlobalConfig, writeGlobalConfig } from "./global-config.js";
 import { runInteractiveReview } from "./interactive-review.js";
 import { renderIntegratedReview } from "./integrated-review.js";
-import { storeLayout } from "./operational-store/layout.js";
 import { applySession } from "./session-apply.js";
 import { closeSession, NoActiveSessionError, SessionInboxNotFoundError } from "./session-close.js";
 import { ActiveSessionAlreadyExistsError, startSession } from "./session-start.js";
+import { buildStatusReport, renderStatusReport } from "./status.js";
 
 export type CliIo = {
   input?: Readable;
@@ -164,14 +164,16 @@ export function createCli(io: CliIo = {}): Command {
 
   program
     .command("status")
-    .description("show Active Session and Operational Store status")
-    .action(() => {
-      const layout = storeLayout(".onix");
-      program.opts();
-      console.log("Onix status");
-      console.log(`Operational Store: ${layout.root}`);
-      console.log(`Versioned Tool State: ${layout.versioned.config}, ${layout.versioned.classificationRules}`);
-      console.log(`Transient state: ${Object.values(layout.transient).join(", ")}`);
+    .description("show resolved vault, Active Session, Patch Plans, and Classification Rules summary")
+    .action(async () => {
+      const options = program.opts();
+      const config = await readGlobalConfig();
+      const resolvedVault = options.vault ?? config.defaultVault;
+      const report = await buildStatusReport({
+        ...(config.defaultVault === undefined ? {} : { defaultVault: config.defaultVault }),
+        ...(resolvedVault === undefined ? {} : { vault: resolvedVault })
+      });
+      console.log(renderStatusReport(report));
     });
 
   return program;

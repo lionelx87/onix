@@ -183,15 +183,13 @@ pnpm onix use --clear    # removes the default
 
 When `--vault` is omitted, Onix falls back to this default. The flag always wins when both are present. The path must exist when set; relative paths are resolved to absolute. This still satisfies the PRD rule that the vault must be explicit — the user opts in once with `onix use` instead of relying on the current working directory.
 
-### Scaffolded Commands
-
-These command surfaces exist for the MVP workflow but are not fully implemented yet:
+### Status
 
 ```bash
-pnpm onix status
+pnpm onix --vault /path/to/vault status
 ```
 
-`status` currently prints the Operational Store layout.
+Shows the resolved vault path, the persisted default (if any), the Active Session (id, inbox path, started timestamp), all Patch Plans with their decision progress (`X of Y decided, Z pending`) and any Rule Candidates still awaiting approval, and the count of approved Classification Rules. When neither `--vault` nor a default is configured, `status` prints a short hint pointing to `onix use <path>` instead of failing.
 
 ## Development
 
