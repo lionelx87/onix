@@ -171,6 +171,18 @@ Minimal usage after review:
 pnpm onix --vault /path/to/vault apply stubbed-plan
 ```
 
+### Set a default vault
+
+Avoid repeating `--vault` on every command by persisting a default in Onix's own global config (`$XDG_CONFIG_HOME/onix/config.json`, falling back to `~/.config/onix/config.json`):
+
+```bash
+pnpm onix use /path/to/vault
+pnpm onix use            # prints the current default
+pnpm onix use --clear    # removes the default
+```
+
+When `--vault` is omitted, Onix falls back to this default. The flag always wins when both are present. The path must exist when set; relative paths are resolved to absolute. This still satisfies the PRD rule that the vault must be explicit — the user opts in once with `onix use` instead of relying on the current working directory.
+
 ### Scaffolded Commands
 
 These command surfaces exist for the MVP workflow but are not fully implemented yet:

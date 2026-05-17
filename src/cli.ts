@@ -1,7 +1,10 @@
 import { Command } from "@commander-js/extra-typings";
+import { stat } from "node:fs/promises";
+import { resolve } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { recordReviewAction, type ReviewActionInput } from "./approval-state.js";
 import { approveClassificationRule } from "./classification-rules.js";
+import { readGlobalConfig, writeGlobalConfig } from "./global-config.js";
 import { runInteractiveReview } from "./interactive-review.js";
 import { renderIntegratedReview } from "./integrated-review.js";
 import { storeLayout } from "./operational-store/layout.js";
@@ -24,11 +27,52 @@ export function createCli(io: CliIo = {}): Command {
     .option("--vault <path>", "path to the local Obsidian vault");
 
   program
+    .command("use")
+    .description("set, show, or clear the default vault used when --vault is omitted")
+    .argument("[path]", "absolute or relative path to an existing vault directory")
+    .option("--clear", "remove the persisted default vault")
+    .action(async (path, useOptions) => {
+      if (useOptions.clear === true) {
+        const config = await readGlobalConfig();
+        if (config.defaultVault === undefined) {
+          console.log("No default vault to clear.");
+          return;
+        }
+
+        const previous = config.defaultVault;
+        await writeGlobalConfig({ schemaVersion: 1 });
+        console.log(`Cleared default vault: ${previous}`);
+        return;
+      }
+
+      if (path === undefined) {
+        const config = await readGlobalConfig();
+        if (config.defaultVault === undefined) {
+          console.log("No default vault set. Run: onix use <path>");
+          return;
+        }
+
+        console.log(`Default vault: ${config.defaultVault}`);
+        return;
+      }
+
+      const absolutePath = resolve(path);
+      const stats = await stat(absolutePath).catch(() => undefined);
+      if (stats === undefined || !stats.isDirectory()) {
+        program.error(`Vault path does not exist or is not a directory: ${absolutePath}`);
+        return;
+      }
+
+      await writeGlobalConfig({ schemaVersion: 1, defaultVault: absolutePath });
+      console.log(`Default vault set to: ${absolutePath}`);
+    });
+
+  program
     .command("start")
     .description("start an Ephemeral Session and create a dated Session Inbox")
     .action(async () => {
       const options = program.opts();
-      const vaultPath = requireVaultPath(program, options.vault);
+      const vaultPath = await requireVaultPath(program, options.vault);
 
       const { activeSession } = await startSession(vaultPath).catch((error: unknown) => {
         if (isActiveSessionAlreadyExistsError(error)) {
@@ -49,7 +93,7 @@ export function createCli(io: CliIo = {}): Command {
     .option("--no-review", "generate the Patch Plan without launching interactive Integrated Review")
     .action(async (closeOptions) => {
       const options = program.opts();
-      const vaultPath = requireVaultPath(program, options.vault);
+      const vaultPath = await requireVaultPath(program, options.vault);
 
       const { plan, reviewRendering } = await closeSession(vaultPath).catch((error: unknown) => {
         if (isNoActiveSessionError(error) || isSessionInboxNotFoundError(error)) {
@@ -83,7 +127,7 @@ export function createCli(io: CliIo = {}): Command {
     .option("--render", "render Review Markdown without recording Approval State")
     .action(async (planId, reviewOptions) => {
       const options = program.opts();
-      const vaultPath = requireVaultPath(program, options.vault);
+      const vaultPath = await requireVaultPath(program, options.vault);
 
       if (reviewOptions.approveRule !== undefined) {
         const rule = await approveClassificationRule(vaultPath, planId, reviewOptions.approveRule);
@@ -112,7 +156,7 @@ export function createCli(io: CliIo = {}): Command {
     .argument("[plan-id]", "Patch Plan identifier")
     .action(async (planId) => {
       const options = program.opts();
-      const vaultPath = requireVaultPath(program, options.vault);
+      const vaultPath = await requireVaultPath(program, options.vault);
 
       const { versioningReview } = await applySession(vaultPath, planId);
       console.log(versioningReview);
@@ -191,13 +235,20 @@ function collectOption(value: string, previous: string[]): string[] {
   return [...previous, value];
 }
 
-function requireVaultPath(program: Command, vaultPath: string | undefined): string {
-  if (vaultPath === undefined) {
-    program.error("Missing vault path. Run: onix --vault <path> start");
-    throw new Error("Missing vault path");
+async function requireVaultPath(program: Command, vaultPath: string | undefined): Promise<string> {
+  if (vaultPath !== undefined) {
+    return vaultPath;
   }
 
-  return vaultPath;
+  const config = await readGlobalConfig();
+  if (config.defaultVault !== undefined) {
+    return config.defaultVault;
+  }
+
+  program.error(
+    "Missing vault path. Run: onix --vault <path> start, or set a default with: onix use <path>"
+  );
+  throw new Error("Missing vault path");
 }
 
 function isActiveSessionAlreadyExistsError(error: unknown): error is ActiveSessionAlreadyExistsError {
