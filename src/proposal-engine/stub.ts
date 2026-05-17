@@ -21,6 +21,34 @@ export function createStubProposalEngine(): ProposalEngine {
             ? "No Freeform Captures found in the Session Inbox."
             : "Stubbed Organization Proposal generated from the Session Inbox.",
         items: captures.map((capture, index) => {
+          const duplicate = findPureDuplicate(capture.text, input.candidateNotes);
+          if (duplicate !== undefined) {
+            return {
+              id: `item-${index + 1}`,
+              kind: "no-consolidation-candidate",
+              learningCapture: capture.text,
+              relatedTopics: [],
+              sourceTrace: `${input.sessionInboxPath} line ${capture.sourceLine}`,
+              proposedContent: "No Consolidation Candidate: capture already exists in Consolidated Knowledge."
+            };
+          }
+
+          const refinement = findStrengtheningRefinement(capture.text, input.candidateNotes, input.vaultIndex.notes);
+          if (refinement !== undefined) {
+            return {
+              id: `item-${index + 1}`,
+              kind: "knowledge-refinement",
+              destinationPath: refinement.notePath,
+              learningCapture: capture.text,
+              primaryTopic: refinement.primaryTopic,
+              relatedTopics: [],
+              sourceTrace: `${input.sessionInboxPath} line ${capture.sourceLine}`,
+              proposedContent: capture.text,
+              existingContent: refinement.existingParagraph,
+              refinementReason: "Strengthens existing Consolidated Knowledge with additional detail from the Session Inbox."
+            };
+          }
+
           const kind = classifyCapture(capture.text);
           const destination = destinationFor(kind, primaryDestination?.path);
           const primaryTopic = primaryTopicFor(kind, primaryDestination);
@@ -40,6 +68,81 @@ export function createStubProposalEngine(): ProposalEngine {
       });
     }
   };
+}
+
+function findPureDuplicate(
+  captureText: string,
+  candidateNotes: ProposalEngineInput["candidateNotes"]
+): { notePath: string; existingParagraph: string } | undefined {
+  const captureKey = normalizeForComparison(captureText);
+  if (captureKey.length === 0) {
+    return undefined;
+  }
+
+  for (const note of candidateNotes) {
+    for (const paragraph of splitParagraphs(note.content)) {
+      if (normalizeForComparison(paragraph) === captureKey) {
+        return { notePath: note.path, existingParagraph: paragraph };
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function findStrengtheningRefinement(
+  captureText: string,
+  candidateNotes: ProposalEngineInput["candidateNotes"],
+  vaultIndexNotes: VaultIndexNote[]
+): { notePath: string; existingParagraph: string; primaryTopic: string } | undefined {
+  const captureTokens = tokenSet(captureText);
+  if (captureTokens.size === 0) {
+    return undefined;
+  }
+
+  for (const note of candidateNotes) {
+    for (const paragraph of splitParagraphs(note.content)) {
+      const paragraphTokens = tokenSet(paragraph);
+      if (paragraphTokens.size === 0 || paragraphTokens.size >= captureTokens.size) {
+        continue;
+      }
+
+      const isSubset = [...paragraphTokens].every((token) => captureTokens.has(token));
+      if (isSubset) {
+        const indexedNote = vaultIndexNotes.find((candidate) => candidate.path === note.path);
+        return {
+          notePath: note.path,
+          existingParagraph: paragraph,
+          primaryTopic: indexedNote?.title ?? note.path
+        };
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function tokenSet(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((token) => token.length >= 3)
+  );
+}
+
+function splitParagraphs(content: string): string[] {
+  return content
+    .split(/\r?\n\r?\n+/)
+    .map((paragraph) => paragraph.trim())
+    .filter((paragraph) => paragraph.length > 0 && !paragraph.startsWith("#"));
+}
+
+function normalizeForComparison(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 function interpretFreeformCaptures(freeformCapture: string): InterpretedCapture[] {

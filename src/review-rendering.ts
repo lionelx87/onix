@@ -31,7 +31,16 @@ export function renderReview(plan: PatchPlan): string {
         lines.push(`  Related Topics: ${item.relatedTopics.join(", ")}`);
       }
 
-      lines.push(`  Proposed Content: ${item.proposedContent}`);
+      if (item.kind === "knowledge-refinement" && item.existingContent !== undefined) {
+        lines.push(`  Before: ${item.existingContent}`);
+        lines.push(`  After: ${item.proposedContent}`);
+
+        if (item.refinementReason !== undefined) {
+          lines.push(`  Reason: ${item.refinementReason}`);
+        }
+      } else {
+        lines.push(`  Proposed Content: ${item.proposedContent}`);
+      }
     }
 
     lines.push("");

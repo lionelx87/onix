@@ -55,7 +55,14 @@ The current Proposal Engine is deterministic and provider-independent. It writes
 /path/to/vault/.onix/approvals/stubbed-plan.json
 ```
 
-The generated Patch Plan can contain Consolidated Knowledge, Research Candidates, Reference Items, Sensitive Candidates, and No Consolidation Candidates. It records the original Learning Capture, source trace, Primary Topic, Related Topics, destination path when applicable, and proposed content. Tests use deterministic fixtures and do not call a live LLM.
+The generated Patch Plan can contain Consolidated Knowledge, Knowledge Refinements, Research Candidates, Reference Items, Sensitive Candidates, and No Consolidation Candidates. It records the original Learning Capture, source trace, Primary Topic, Related Topics, destination path when applicable, and proposed content. Tests use deterministic fixtures and do not call a live LLM.
+
+Duplicate handling runs against the Candidate Notes selected from the Vault Index:
+
+- A Freeform Capture that matches an existing paragraph becomes a No Consolidation Candidate.
+- A Freeform Capture that contains an existing paragraph and adds new detail becomes a Knowledge Refinement, with the existing paragraph as `existingContent`, the strengthened text as `proposedContent`, and a `refinementReason`.
+
+Knowledge Refinements appear in the Review Rendering as Before, After, and Reason instead of a single Proposed Content block.
 
 Use `--no-review` when automation or tests need to generate the Patch Plan without launching the interactive review:
 
@@ -124,6 +131,8 @@ pnpm onix --vault /path/to/vault apply stubbed-plan
 `--vault` is required. The optional argument is the Patch Plan identifier stored under `.onix/plans/<plan-id>.json`; when there is exactly one Patch Plan, `apply` can infer it.
 
 `apply` reads the Patch Plan and Approval State, validates every destination against the Write Boundary, runs Commit Validation to stop if a destination changed after proposal generation, and writes only approved, edited, moved, or split Review Actions. Discarded items are not written, and pending items are ignored.
+
+Approved Knowledge Refinements replace the matching `existingContent` paragraph in the destination note in place rather than appending. If the paragraph no longer exists in the destination, `apply` stops with a `Refinement target not found` error so the proposal can be regenerated.
 
 Approved Consolidated Knowledge is written to thematic vault files inside the initial Write Boundary:
 

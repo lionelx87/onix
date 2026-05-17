@@ -97,6 +97,86 @@ describe("Proposal Engine contract", () => {
     expect(plan.items[4]).not.toHaveProperty("destinationPath");
   });
 
+  test("classifies a pure duplicate capture as a No Consolidation Candidate", async () => {
+    const engine = createStubProposalEngine();
+
+    const plan = await engine.propose({
+      schemaVersion: 1,
+      sessionInboxPath: "Onix/Sessions/session-inbox-20260517-100000.md",
+      freeformCapture: "- Primary Topics answer the durable question.",
+      vaultIndexRef: ".onix/indexes/vault-index.json",
+      vaultIndex: {
+        schemaVersion: 1,
+        generatedAt: "2026-05-17T10:00:00.000Z",
+        notes: [
+          {
+            path: "Knowledge/Knowledge Topics.md",
+            title: "Knowledge Topics",
+            aliases: [],
+            headings: ["Knowledge Topics"],
+            tags: [],
+            summary: "Stable subjects used to recover Consolidated Knowledge.",
+            outgoingLinks: []
+          }
+        ]
+      },
+      candidateNotes: [
+        {
+          path: "Knowledge/Knowledge Topics.md",
+          content: "# Knowledge Topics\n\nPrimary Topics answer the durable question.\n"
+        }
+      ]
+    });
+
+    expect(plan.items).toHaveLength(1);
+    expect(plan.items[0]).toMatchObject({
+      kind: "no-consolidation-candidate",
+      learningCapture: "Primary Topics answer the durable question."
+    });
+    expect(plan.items[0]).not.toHaveProperty("destinationPath");
+  });
+
+  test("classifies a strengthening duplicate as a Knowledge Refinement", async () => {
+    const engine = createStubProposalEngine();
+
+    const plan = await engine.propose({
+      schemaVersion: 1,
+      sessionInboxPath: "Onix/Sessions/session-inbox-20260517-100000.md",
+      freeformCapture: "- Primary Topics answer the durable question, and bug contexts become Related Topics.",
+      vaultIndexRef: ".onix/indexes/vault-index.json",
+      vaultIndex: {
+        schemaVersion: 1,
+        generatedAt: "2026-05-17T10:00:00.000Z",
+        notes: [
+          {
+            path: "Knowledge/Knowledge Topics.md",
+            title: "Knowledge Topics",
+            aliases: [],
+            headings: ["Knowledge Topics"],
+            tags: [],
+            summary: "Stable subjects used to recover Consolidated Knowledge.",
+            outgoingLinks: []
+          }
+        ]
+      },
+      candidateNotes: [
+        {
+          path: "Knowledge/Knowledge Topics.md",
+          content: "# Knowledge Topics\n\nPrimary Topics answer the durable question.\n"
+        }
+      ]
+    });
+
+    expect(plan.items).toHaveLength(1);
+    expect(plan.items[0]).toMatchObject({
+      kind: "knowledge-refinement",
+      destinationPath: "Knowledge/Knowledge Topics.md",
+      existingContent: "Primary Topics answer the durable question.",
+      proposedContent: "Primary Topics answer the durable question, and bug contexts become Related Topics.",
+      refinementReason: "Strengthens existing Consolidated Knowledge with additional detail from the Session Inbox."
+    });
+  });
+
   test("adds Valuable Links only when a Related Topic improves retrieval", async () => {
     const engine = createStubProposalEngine();
 

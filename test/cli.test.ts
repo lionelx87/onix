@@ -197,6 +197,31 @@ describe("Integrated Review", () => {
     expect(output).toContain("Source: Onix/Sessions/session.md line 2");
   });
 
+  test("renders Knowledge Refinement items as Before/After/Reason", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "onix-vault-"));
+    const stdout: string[] = [];
+    const consoleLog = vi.spyOn(console, "log").mockImplementation((value: string) => stdout.push(value));
+
+    try {
+      await writeRefinementPlan(vault);
+
+      await createCli()
+        .exitOverride()
+        .parseAsync(["node", "onix", "--vault", vault, "review", "refinement-plan", "--render"]);
+    } finally {
+      consoleLog.mockRestore();
+    }
+
+    const output = stdout.join("\n");
+    expect(output).toContain("## Knowledge/Knowledge Topics.md");
+    expect(output).toContain("Kind: knowledge-refinement");
+    expect(output).toContain("Before: Primary Topics answer the durable question.");
+    expect(output).toContain(
+      "After: Primary Topics answer the durable question, and bug contexts become Related Topics."
+    );
+    expect(output).toContain("Reason: Strengthens existing Consolidated Knowledge with additional detail.");
+  });
+
   test("does not create Approval State when only rendering Review Markdown", async () => {
     const vault = await mkdtemp(join(tmpdir(), "onix-vault-"));
     const consoleLog = vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -759,6 +784,73 @@ describe("Apply", () => {
     });
   });
 
+  test("applies an approved Knowledge Refinement by replacing existingContent in the destination note", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "onix-vault-"));
+
+    await writeActiveSession(vault);
+    await mkdir(join(vault, "Knowledge"), { recursive: true });
+    await writeFile(
+      join(vault, "Knowledge", "Knowledge Topics.md"),
+      "# Knowledge Topics\n\nPrimary Topics answer the durable question.\n\nUnchanged paragraph stays intact.\n"
+    );
+    await writeApplyRefinementPlan(vault);
+    await writeApprovalState(vault, {
+      planId: "refinement-apply-plan",
+      decisions: [
+        {
+          itemId: "refinement",
+          action: "approve",
+          destinationPath: "Knowledge/Knowledge Topics.md",
+          content:
+            "Primary Topics answer the durable question, and bug contexts become Related Topics."
+        }
+      ]
+    });
+
+    await createCli()
+      .exitOverride()
+      .parseAsync(["node", "onix", "--vault", vault, "apply", "refinement-apply-plan"]);
+
+    await expect(readFile(join(vault, "Knowledge", "Knowledge Topics.md"), "utf8")).resolves.toBe(
+      "# Knowledge Topics\n\nPrimary Topics answer the durable question, and bug contexts become Related Topics.\n\nUnchanged paragraph stays intact.\n"
+    );
+  });
+
+  test("stops when an approved Knowledge Refinement no longer matches the destination note", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "onix-vault-"));
+
+    await writeActiveSession(vault);
+    await mkdir(join(vault, "Knowledge"), { recursive: true });
+    await writeFile(
+      join(vault, "Knowledge", "Knowledge Topics.md"),
+      "# Knowledge Topics\n\nThis paragraph no longer matches the refinement target.\n"
+    );
+    await writeApplyRefinementPlan(vault);
+    await writeApprovalState(vault, {
+      planId: "refinement-apply-plan",
+      decisions: [
+        {
+          itemId: "refinement",
+          action: "approve",
+          destinationPath: "Knowledge/Knowledge Topics.md",
+          content:
+            "Primary Topics answer the durable question, and bug contexts become Related Topics."
+        }
+      ]
+    });
+
+    await expect(
+      createCli().exitOverride().parseAsync(["node", "onix", "--vault", vault, "apply", "refinement-apply-plan"])
+    ).rejects.toThrow("Refinement target not found in destination: Knowledge/Knowledge Topics.md");
+
+    await expect(readFile(join(vault, "Knowledge", "Knowledge Topics.md"), "utf8")).resolves.toBe(
+      "# Knowledge Topics\n\nThis paragraph no longer matches the refinement target.\n"
+    );
+    await expect(readFile(join(vault, "Onix", "Sessions", "session-inbox.md"), "utf8")).resolves.toContain(
+      "onix_session_id"
+    );
+  });
+
   test("rejects destination paths outside the Write Boundary before writing or cleanup", async () => {
     const vault = await mkdtemp(join(tmpdir(), "onix-vault-"));
 
@@ -884,6 +976,37 @@ async function writeReviewPlan(vault: string): Promise<void> {
   );
 }
 
+async function writeRefinementPlan(vault: string): Promise<void> {
+  await mkdir(join(vault, ".onix", "plans"), { recursive: true });
+  await writeFile(
+    join(vault, ".onix", "plans", "refinement-plan.json"),
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        planId: "refinement-plan",
+        summary: "Refine existing Consolidated Knowledge.",
+        items: [
+          {
+            id: "item-1",
+            kind: "knowledge-refinement",
+            destinationPath: "Knowledge/Knowledge Topics.md",
+            learningCapture: "Primary Topics answer the durable question, and bug contexts become Related Topics.",
+            primaryTopic: "Knowledge Topics",
+            relatedTopics: [],
+            sourceTrace: "Onix/Sessions/session.md line 1",
+            proposedContent:
+              "Primary Topics answer the durable question, and bug contexts become Related Topics.",
+            existingContent: "Primary Topics answer the durable question.",
+            refinementReason: "Strengthens existing Consolidated Knowledge with additional detail."
+          }
+        ]
+      },
+      null,
+      2
+    )
+  );
+}
+
 async function writeApplyPlan(vault: string): Promise<void> {
   await mkdir(join(vault, ".onix", "plans"), { recursive: true });
   await writeFile(
@@ -971,6 +1094,38 @@ async function writeApplyPlan(vault: string): Promise<void> {
             relatedTopics: [],
             sourceTrace: "Onix/Sessions/session-inbox.md line 9",
             proposedContent: "Reference: https://example.com/discarded is not useful."
+          }
+        ]
+      },
+      null,
+      2
+    )
+  );
+}
+
+async function writeApplyRefinementPlan(vault: string): Promise<void> {
+  await mkdir(join(vault, ".onix", "plans"), { recursive: true });
+  await writeFile(
+    join(vault, ".onix", "plans", "refinement-apply-plan.json"),
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        planId: "refinement-apply-plan",
+        summary: "Refine existing Consolidated Knowledge.",
+        items: [
+          {
+            id: "refinement",
+            kind: "knowledge-refinement",
+            destinationPath: "Knowledge/Knowledge Topics.md",
+            learningCapture:
+              "Primary Topics answer the durable question, and bug contexts become Related Topics.",
+            primaryTopic: "Knowledge Topics",
+            relatedTopics: [],
+            sourceTrace: "Onix/Sessions/session-inbox.md line 1",
+            proposedContent:
+              "Primary Topics answer the durable question, and bug contexts become Related Topics.",
+            existingContent: "Primary Topics answer the durable question.",
+            refinementReason: "Strengthens existing Consolidated Knowledge with additional detail."
           }
         ]
       },

@@ -13,6 +13,7 @@ export type ApplySessionResult = {
 type WriteCandidate = {
   destinationPath: string;
   content: string;
+  existingContent?: string;
 };
 
 export async function applySession(vaultPath: string, requestedPlanId?: string): Promise<ApplySessionResult> {
@@ -25,23 +26,25 @@ export async function applySession(vaultPath: string, requestedPlanId?: string):
   const candidates = writeCandidatesFor(plan, approvalState.decisions);
   const writesByDestination = groupWritesByDestination(candidates);
 
-  for (const destinationPath of writesByDestination.keys()) {
+  for (const [destinationPath, candidates] of writesByDestination) {
     validateDestinationPath(destinationPath);
     await validateDestinationIsFresh(vaultPath, destinationPath, planStat.mtimeMs);
+    await validateRefinementTargets(vaultPath, destinationPath, candidates);
   }
 
-  for (const [destinationPath, contents] of writesByDestination) {
-    const nextContent = renderDestinationContent(await readExistingContent(vaultPath, destinationPath), contents);
+  for (const [destinationPath, candidates] of writesByDestination) {
+    const nextContent = renderDestinationContent(await readExistingContent(vaultPath, destinationPath), candidates);
     await mkdir(dirname(join(vaultPath, destinationPath)), { recursive: true });
     await writeFile(join(vaultPath, destinationPath), nextContent);
   }
 
-  for (const [destinationPath, contents] of writesByDestination) {
-    const expectedContent = renderDestinationContent("", contents);
+  for (const [destinationPath, candidates] of writesByDestination) {
     const writtenContent = await readFile(join(vaultPath, destinationPath), "utf8");
 
-    if (!writtenContent.endsWith(expectedContent)) {
-      throw new Error(`Write verification failed for ${destinationPath}`);
+    for (const candidate of candidates) {
+      if (!writtenContent.includes(candidate.content.trim())) {
+        throw new Error(`Write verification failed for ${destinationPath}`);
+      }
     }
   }
 
@@ -74,7 +77,13 @@ function writeCandidatesFor(plan: PatchPlan, decisions: ApprovalDecision[]): Wri
     }
 
     if (decision.destinationPath !== undefined) {
-      candidates.push({ destinationPath: decision.destinationPath, content: renderApprovedContent(item, decision.content) });
+      candidates.push({
+        destinationPath: decision.destinationPath,
+        content: renderApprovedContent(item, decision.content),
+        ...(item.kind === "knowledge-refinement" && item.existingContent !== undefined && decision.action !== "move"
+          ? { existingContent: item.existingContent }
+          : {})
+      });
     }
   }
 
@@ -94,12 +103,12 @@ function renderApprovedContent(item: PatchPlan["items"][number], content: string
   return content;
 }
 
-function groupWritesByDestination(candidates: WriteCandidate[]): Map<string, string[]> {
-  const grouped = new Map<string, string[]>();
+function groupWritesByDestination(candidates: WriteCandidate[]): Map<string, WriteCandidate[]> {
+  const grouped = new Map<string, WriteCandidate[]>();
 
   for (const candidate of candidates) {
     const existing = grouped.get(candidate.destinationPath) ?? [];
-    existing.push(candidate.content);
+    existing.push(candidate);
     grouped.set(candidate.destinationPath, existing);
   }
 
@@ -151,6 +160,28 @@ async function validateDestinationIsFresh(
   }
 }
 
+async function validateRefinementTargets(
+  vaultPath: string,
+  destinationPath: string,
+  candidates: WriteCandidate[]
+): Promise<void> {
+  const refinementTargets = candidates
+    .map((candidate) => candidate.existingContent?.trim())
+    .filter((target): target is string => target !== undefined && target.length > 0);
+
+  if (refinementTargets.length === 0) {
+    return;
+  }
+
+  const existing = await readExistingContent(vaultPath, destinationPath);
+
+  for (const target of refinementTargets) {
+    if (!existing.includes(target)) {
+      throw new Error(`Refinement target not found in destination: ${destinationPath}`);
+    }
+  }
+}
+
 async function readExistingContent(vaultPath: string, destinationPath: string): Promise<string> {
   try {
     return await readFile(join(vaultPath, destinationPath), "utf8");
@@ -163,15 +194,42 @@ async function readExistingContent(vaultPath: string, destinationPath: string): 
   }
 }
 
-function renderDestinationContent(existingContent: string, newContents: string[]): string {
-  const existing = existingContent.trimEnd();
-  const addition = newContents.map((content) => content.trim()).filter(Boolean).join("\n\n");
+function renderDestinationContent(existingContent: string, candidates: WriteCandidate[]): string {
+  let working = existingContent;
 
-  if (existing.length === 0) {
-    return `${addition}\n`;
+  for (const candidate of candidates) {
+    if (candidate.existingContent !== undefined) {
+      working = replaceParagraph(working, candidate.existingContent, candidate.content);
+    }
   }
 
-  return `${existing}\n\n${addition}\n`;
+  const additions = candidates
+    .filter((candidate) => candidate.existingContent === undefined)
+    .map((candidate) => candidate.content.trim())
+    .filter(Boolean);
+
+  const trimmedExisting = working.trimEnd();
+
+  if (additions.length === 0) {
+    return `${trimmedExisting}\n`;
+  }
+
+  const additionBlock = additions.join("\n\n");
+
+  if (trimmedExisting.length === 0) {
+    return `${additionBlock}\n`;
+  }
+
+  return `${trimmedExisting}\n\n${additionBlock}\n`;
+}
+
+function replaceParagraph(content: string, existingParagraph: string, replacement: string): string {
+  const target = existingParagraph.trim();
+  if (target.length === 0 || !content.includes(target)) {
+    return content;
+  }
+
+  return content.replace(target, replacement.trim());
 }
 
 async function cleanupActiveSession(vaultPath: string): Promise<void> {
