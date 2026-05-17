@@ -91,7 +91,6 @@ export function createCli(io: CliIo = {}): Command {
   program
     .command("close")
     .description("close the Active Session and generate a reviewable Patch Plan")
-    .option("--stub <fixture>", "use a deterministic Proposal Engine fixture")
     .option("--no-review", "generate the Patch Plan without launching interactive Integrated Review")
     .action(async (closeOptions) => {
       const options = program.opts();
@@ -204,10 +203,6 @@ export function createCli(io: CliIo = {}): Command {
     });
 
   return program;
-}
-
-function printPlaceholder(surface: string): void {
-  console.log(`${surface} is scaffolded. Implementation will land in a later tracer bullet.`);
 }
 
 function reviewActionFromOptions(
