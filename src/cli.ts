@@ -5,6 +5,8 @@ import type { Readable, Writable } from "node:stream";
 import { recordReviewAction, type ReviewActionInput } from "./approval-state.js";
 import { approveClassificationRule } from "./classification-rules.js";
 import { readGlobalConfig, writeGlobalConfig } from "./global-config.js";
+import { runCloseTui } from "./cli/close-tui.js";
+import { runStatusDashboard } from "./cli/status-tui.js";
 import { runInteractiveReview } from "./interactive-review.js";
 import { renderIntegratedReview } from "./integrated-review.js";
 import { applySession } from "./session-apply.js";
@@ -94,6 +96,22 @@ export function createCli(io: CliIo = {}): Command {
     .action(async (closeOptions) => {
       const options = program.opts();
       const vaultPath = await requireVaultPath(program, options.vault);
+      const reviewRequested = closeOptions.review !== false;
+
+      if (output === process.stdout && process.stdout.isTTY === true && reviewRequested) {
+        const tui = await runCloseTui(vaultPath).catch((error: unknown) => {
+          if (isNoActiveSessionError(error) || isSessionInboxNotFoundError(error)) {
+            program.error(error.message);
+          }
+
+          throw error;
+        });
+
+        if (tui.shouldEnterReview) {
+          await runInteractiveReview(vaultPath, tui.plan.planId, { input, output });
+        }
+        return;
+      }
 
       const { plan, reviewRendering } = await closeSession(vaultPath).catch((error: unknown) => {
         if (isNoActiveSessionError(error) || isSessionInboxNotFoundError(error)) {
@@ -106,7 +124,7 @@ export function createCli(io: CliIo = {}): Command {
       console.log(`Generated Patch Plan: ${plan.planId}`);
       console.log(reviewRendering);
 
-      if (closeOptions.review !== false && plan.items.length > 0) {
+      if (reviewRequested && plan.items.length > 0) {
         await runInteractiveReview(vaultPath, plan.planId, { input, output });
       }
     });
@@ -173,6 +191,15 @@ export function createCli(io: CliIo = {}): Command {
         ...(config.defaultVault === undefined ? {} : { defaultVault: config.defaultVault }),
         ...(resolvedVault === undefined ? {} : { vault: resolvedVault })
       });
+
+      if (output === process.stdout && process.stdout.isTTY === true && resolvedVault !== undefined) {
+        const selectedPlanId = await runStatusDashboard(report);
+        if (selectedPlanId !== undefined) {
+          await runInteractiveReview(resolvedVault, selectedPlanId, { input, output });
+        }
+        return;
+      }
+
       console.log(renderStatusReport(report));
     });
 

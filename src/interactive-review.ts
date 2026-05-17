@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
+import type * as Blessed from "blessed";
 import {
   readApprovalState,
   readPatchPlan,
@@ -18,6 +19,619 @@ export type InteractiveReviewIo = {
 };
 
 export async function runInteractiveReview(vaultPath: string, planId: string, io: InteractiveReviewIo): Promise<void> {
+  if (shouldUseDashboard(io.output)) {
+    await runBlessedReview(vaultPath, planId);
+    return;
+  }
+
+  await runLinePromptReview(vaultPath, planId, io);
+}
+
+function shouldUseDashboard(output: Writable): boolean {
+  return output === process.stdout && process.stdout.isTTY === true;
+}
+
+type PendingItem = PatchPlan["items"][number];
+type InteractiveAction = ReviewActionInput | "next" | "previous" | "skip" | "quit";
+
+async function runBlessedReview(vaultPath: string, planId: string): Promise<void> {
+  const blessedModule = await import("blessed");
+  const blessed = ((blessedModule as { default?: unknown }).default ?? blessedModule) as typeof Blessed;
+  const plan = await readPatchPlan(vaultPath, planId);
+  const approvalState = await readApprovalState(vaultPath, planId);
+  const decisions = new Map<string, ReviewActionInput["action"]>(
+    approvalState.decisions.map((decision) => [decision.itemId, decision.action])
+  );
+  const items = plan.items;
+  if (items.length === 0) {
+    process.stdout.write("No items to review.\n");
+    return;
+  }
+
+  const originals = items.map((item) => ({
+    proposedContent: item.proposedContent,
+    destinationPath: item.destinationPath
+  }));
+  const vaultNotePaths = await loadVaultNotePaths(vaultPath);
+
+  const firstPendingIndex = items.findIndex((item) => !decisions.has(item.id));
+  let cursor = firstPendingIndex === -1 ? 0 : firstPendingIndex;
+
+  const screen = blessed.screen({
+    smartCSR: true,
+    fullUnicode: true,
+    title: `Onix · Review ${plan.planId}`
+  });
+
+  const topBar = blessed.box({
+    parent: screen,
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 1,
+    tags: true,
+    style: { fg: "white", bg: "blue", bold: true },
+    content: ""
+  });
+
+  const planList = blessed.list({
+    parent: screen,
+    label: " Plan Items ",
+    top: 1,
+    left: 0,
+    width: "30%",
+    bottom: 1,
+    border: { type: "line" },
+    style: {
+      border: { fg: "gray" },
+      selected: { bg: "blue", fg: "white", bold: true }
+    },
+    keys: false,
+    tags: true,
+    items: []
+  });
+
+  const sourcePane = blessed.box({
+    parent: screen,
+    label: " Source Trace ",
+    top: 1,
+    left: "30%",
+    width: "35%",
+    bottom: 1,
+    border: { type: "line" },
+    style: { border: { fg: "gray" } },
+    tags: true,
+    scrollable: true,
+    alwaysScroll: true,
+    keys: false
+  });
+
+  const proposedPane = blessed.box({
+    parent: screen,
+    label: " Proposed Content ",
+    top: 1,
+    left: "65%",
+    right: 0,
+    bottom: 1,
+    border: { type: "line" },
+    style: { border: { fg: "cyan" } },
+    tags: true,
+    scrollable: true,
+    alwaysScroll: true,
+    keys: false
+  });
+
+  const defaultHint = " [a]pprove [e]dit [m]ove [s]plit [d]iscard · ↑↓ navigate · [u]ndo · q quit ";
+  const hintBar = blessed.box({
+    parent: screen,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 1,
+    style: { fg: "white", bg: "gray" },
+    content: defaultHint
+  });
+
+  type KeyEvent = { name?: string; ctrl?: boolean; full?: string };
+  type ModalKeyHandler = (ch: string, key: KeyEvent | undefined) => void;
+  let modalKeyHandler: ModalKeyHandler | undefined;
+  const isModalOpen = (): boolean => modalKeyHandler !== undefined;
+  let transientHintTimer: NodeJS.Timeout | undefined;
+  const flashHint = (message: string, ms = 1800): void => {
+    hintBar.setContent(` ${message} `);
+    screen.render();
+    if (transientHintTimer !== undefined) clearTimeout(transientHintTimer);
+    transientHintTimer = setTimeout(() => {
+      hintBar.setContent(defaultHint);
+      screen.render();
+    }, ms);
+  };
+
+  const repaint = (): void => {
+    const program = screen.program as unknown as {
+      hideCursor: () => void;
+      clear: () => void;
+      flush: () => void;
+    };
+    program.hideCursor();
+    program.clear();
+    program.flush();
+    (screen as unknown as { realloc: () => void }).realloc();
+  };
+
+  const refresh = (): void => {
+    const current = items[cursor]!;
+    const decidedCount = decisions.size;
+    topBar.setContent(
+      ` Onix › Plan {bold}${plan.planId}{/} › Item {bold}${cursor + 1}/${items.length}{/}   {green-fg}${decidedCount}{/} decided  ·  {yellow-fg}${items.length - decidedCount}{/} pending `
+    );
+
+    planList.setItems(
+      items.map((item, index) => {
+        const meta = kindMeta(item.kind);
+        const dest = (item.destinationPath ?? "(no consolidation)").padEnd(22).slice(0, 22);
+        const marker = index === cursor ? "▸" : " ";
+        return ` ${marker} ${decisionGlyph(decisions.get(item.id))} {${meta.tone}-fg}${meta.glyph}{/} ${dest}`;
+      }) as never
+    );
+    planList.select(cursor);
+
+    sourcePane.setContent(buildSourcePane(current, decisions.get(current.id)));
+    proposedPane.setContent(buildProposedPane(current));
+
+    screen.render();
+  };
+
+  const recordDecision = async (decision: ReviewActionInput): Promise<void> => {
+    await recordReviewAction(vaultPath, planId, decision);
+    decisions.set(decision.itemId, decision.action);
+    if (cursor < items.length - 1) cursor += 1;
+    refresh();
+  };
+
+  const handleApprove = async (): Promise<void> => {
+    const current = items[cursor]!;
+    await recordDecision({ action: "approve", itemId: current.id });
+  };
+
+  const handleDiscard = async (): Promise<void> => {
+    const current = items[cursor]!;
+    await recordDecision({ action: "discard", itemId: current.id });
+  };
+
+  const handleEdit = async (): Promise<void> => {
+    const current = items[cursor]!;
+    try {
+      const edited = await suspendAndEdit(screen, current.proposedContent, ".md");
+      if (edited === undefined || edited.trim().length === 0) {
+        flashHint("Edit canceled · item remains pending");
+        return;
+      }
+      current.proposedContent = edited;
+      await recordDecision({ action: "edit", itemId: current.id, content: edited });
+    } finally {
+      repaint();
+      refresh();
+    }
+  };
+
+  const handleSplit = async (): Promise<void> => {
+    const current = items[cursor]!;
+    try {
+      const template = splitTemplate(current.proposedContent);
+      const edited = await suspendAndEdit(screen, template, ".md");
+      if (edited === undefined) {
+        flashHint("Split canceled · item remains pending");
+        return;
+      }
+      const parts = parseSplitTemplate(edited);
+      if (parts.length < 2) {
+        flashHint("Split needs at least two non-empty parts");
+        return;
+      }
+      await recordDecision({ action: "split", itemId: current.id, parts });
+    } finally {
+      repaint();
+      refresh();
+    }
+  };
+
+  const handleMove = async (): Promise<void> => {
+    const current = items[cursor]!;
+    try {
+      const destinationPath = await promptForPath(
+        blessed,
+        screen,
+        vaultNotePaths,
+        current.destinationPath ?? "",
+        (handler) => { modalKeyHandler = handler; },
+        () => { modalKeyHandler = undefined; }
+      );
+      if (destinationPath === undefined || destinationPath.trim().length === 0) {
+        flashHint("Move canceled · item remains pending");
+        return;
+      }
+      current.destinationPath = destinationPath.trim();
+      await recordDecision({ action: "move", itemId: current.id, destinationPath: destinationPath.trim() });
+    } finally {
+      repaint();
+      refresh();
+    }
+  };
+
+  const handleUndo = (): void => {
+    const current = items[cursor]!;
+    const snapshot = originals[cursor]!;
+    current.proposedContent = snapshot.proposedContent;
+    if (snapshot.destinationPath !== undefined) {
+      current.destinationPath = snapshot.destinationPath;
+    } else {
+      delete (current as { destinationPath?: string }).destinationPath;
+    }
+    decisions.delete(current.id);
+    refresh();
+  };
+
+  return await new Promise<void>((resolve, reject) => {
+    const failFast = (error: unknown): void => {
+      screen.destroy();
+      reject(error instanceof Error ? error : new Error(String(error)));
+    };
+    const run = (handler: () => Promise<void>): void => {
+      void handler().catch(failFast);
+    };
+
+    let lastKeyAt = 0;
+    let lastKeySignature: string | undefined;
+    screen.on("keypress", (ch: string, key: KeyEvent | undefined) => {
+      const now = Date.now();
+      const name = key?.name;
+      const signature = `${name ?? ""}|${ch ?? ""}`;
+      if (signature === lastKeySignature && now - lastKeyAt < 50) {
+        return;
+      }
+      lastKeyAt = now;
+      lastKeySignature = signature;
+
+      if (modalKeyHandler !== undefined) {
+        modalKeyHandler(ch, key);
+        return;
+      }
+      if (key === undefined) return;
+      if (key.ctrl === true && name === "c") {
+        screen.destroy();
+        resolve();
+        return;
+      }
+      switch (name) {
+        case "up":
+          cursor = Math.max(0, cursor - 1);
+          refresh();
+          return;
+        case "down":
+          cursor = Math.min(items.length - 1, cursor + 1);
+          refresh();
+          return;
+        case "q":
+          screen.destroy();
+          resolve();
+          return;
+        case "a":
+          run(handleApprove);
+          return;
+        case "d":
+          run(handleDiscard);
+          return;
+        case "e":
+          run(handleEdit);
+          return;
+        case "s":
+          run(handleSplit);
+          return;
+        case "m":
+          run(handleMove);
+          return;
+        case "u":
+          handleUndo();
+          return;
+        default:
+          return;
+      }
+    });
+
+    repaint();
+    refresh();
+  });
+}
+
+function kindMeta(kind: PendingItem["kind"]): { glyph: string; tone: string; label: string } {
+  switch (kind) {
+    case "consolidated-knowledge":
+      return { glyph: "+", tone: "green", label: "New knowledge" };
+    case "knowledge-refinement":
+      return { glyph: "~", tone: "blue", label: "Refine existing" };
+    case "research-candidate":
+      return { glyph: "?", tone: "yellow", label: "Research" };
+    case "reference-item":
+      return { glyph: "@", tone: "magenta", label: "Reference" };
+    case "sensitive-candidate":
+      return { glyph: "!", tone: "red", label: "Sensitive" };
+    case "no-consolidation-candidate":
+      return { glyph: "x", tone: "gray", label: "No consolidation" };
+  }
+}
+
+function decisionGlyph(decision: ReviewActionInput["action"] | undefined): string {
+  if (decision === undefined) return " ";
+  if (decision === "approve") return "{green-fg}✓{/}";
+  if (decision === "discard") return "{red-fg}✗{/}";
+  return "{yellow-fg}✎{/}";
+}
+
+function buildSourcePane(current: PendingItem, decision: ReviewActionInput["action"] | undefined): string {
+  const meta = kindMeta(current.kind);
+  const decisionBadge = (() => {
+    if (decision === undefined) return "";
+    if (decision === "approve") return "  {green-fg}✓ approved{/}";
+    if (decision === "discard") return "  {red-fg}✗ discarded{/}";
+    if (decision === "edit") return "  {yellow-fg}✎ edited{/}";
+    if (decision === "move") return "  {yellow-fg}→ moved{/}";
+    if (decision === "split") return "  {yellow-fg}⎇ split{/}";
+    return `  {yellow-fg}${decision}{/}`;
+  })();
+  const lines: string[] = [
+    "",
+    `  {bold}ID{/}        ${current.id}${decisionBadge}`,
+    `  {bold}Kind{/}      {${meta.tone}-fg}${meta.label}{/}`,
+    `  {bold}Source{/}    ${current.sourceTrace}`,
+    `  {bold}Topic{/}     ${current.primaryTopic ?? "—"}`,
+    `  {bold}Related{/}   ${current.relatedTopics.length > 0 ? current.relatedTopics.join(", ") : "—"}`,
+    "",
+    "  {gray-fg}── Learning Capture (original){/}",
+    ...wrap(current.learningCapture, 36).map((line) => `  {gray-fg}${line}{/}`)
+  ];
+  if (current.refinementReason !== undefined) {
+    lines.push("", "  {blue-fg}── Refinement reason ──{/}");
+    lines.push(...wrap(current.refinementReason, 36).map((line) => `  ${line}`));
+  }
+  if (current.existingContent !== undefined) {
+    lines.push("", "  {gray-fg}── Existing content ──{/}");
+    lines.push(...current.existingContent.split("\n").map((line) => `  {gray-fg}${line}{/}`));
+  }
+  return lines.join("\n");
+}
+
+function buildProposedPane(current: PendingItem): string {
+  return [
+    "",
+    `  {bold}Destination{/} ${current.destinationPath ?? "(no consolidation)"}`,
+    "",
+    ...current.proposedContent.split("\n").map((line) => `  ${line}`)
+  ].join("\n");
+}
+
+async function suspendAndEdit(
+  screen: Blessed.Widgets.Screen,
+  initialContent: string,
+  extension: string
+): Promise<string | undefined> {
+  const editor = process.env.VISUAL ?? process.env.EDITOR;
+  if (editor === undefined || editor.trim().length === 0) {
+    return undefined;
+  }
+
+  const directory = await mkdtemp(join(tmpdir(), "onix-review-"));
+  const filePath = join(directory, `review-action${extension}`);
+
+  try {
+    await writeFile(filePath, initialContent);
+    const exitCode = await runEditorSuspending(screen, editor, filePath);
+    if (exitCode !== 0) {
+      return undefined;
+    }
+
+    return await readFile(filePath, "utf8");
+  } finally {
+    await rm(directory, { force: true, recursive: true });
+  }
+}
+
+function runEditorSuspending(
+  screen: Blessed.Widgets.Screen,
+  editor: string,
+  filePath: string
+): Promise<number | null> {
+  return new Promise((resolve, reject) => {
+    const child = (screen as unknown as {
+      spawn: (file: string, args: string[], options?: { stdio?: "inherit" }) => {
+        on: (event: "exit" | "error", listener: (value: unknown) => void) => void;
+      };
+    }).spawn("sh", ["-c", `${editor} ${quoteShellArgument(filePath)}`]);
+    child.on("error", (error) => reject(error as Error));
+    child.on("exit", (code) => resolve(typeof code === "number" ? code : null));
+  });
+}
+
+type ModalKey = { name?: string; ctrl?: boolean; full?: string };
+
+async function loadVaultNotePaths(vaultPath: string): Promise<string[]> {
+  const indexPath = join(vaultPath, ".onix", "indexes", "vault-index.json");
+  try {
+    const raw = await readFile(indexPath, "utf8");
+    const parsed = JSON.parse(raw) as { notes?: Array<{ path?: string }> };
+    return (parsed.notes ?? [])
+      .map((note) => note.path)
+      .filter((path): path is string => typeof path === "string" && path.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+async function promptForPath(
+  blessed: typeof Blessed,
+  screen: Blessed.Widgets.Screen,
+  candidates: string[],
+  initialValue: string,
+  attach: (handler: (ch: string, key: ModalKey | undefined) => void) => void,
+  detach: () => void
+): Promise<string | undefined> {
+  return await new Promise((resolve) => {
+    const maxCandidates = 8;
+
+    const overlay = blessed.box({
+      parent: screen,
+      top: "center",
+      left: "center",
+      width: "80%",
+      height: maxCandidates + 7,
+      border: { type: "line" },
+      style: { border: { fg: "cyan" } },
+      label: " Move destination ",
+      tags: true
+    });
+
+    blessed.text({
+      parent: overlay,
+      top: 0,
+      left: 1,
+      right: 1,
+      height: 2,
+      tags: true,
+      content:
+        "{gray-fg}Type a path. Matching notes appear below.{/}\n" +
+        "{gray-fg}↑↓ pick a match · Tab autocomplete · Enter confirm (free path allowed) · Esc cancel{/}"
+    });
+
+    const inputField = blessed.box({
+      parent: overlay,
+      top: 3,
+      left: 1,
+      right: 1,
+      height: 1,
+      tags: false,
+      style: { fg: "white", bg: "black" }
+    });
+
+    const matchesPane = blessed.box({
+      parent: overlay,
+      top: 5,
+      left: 1,
+      right: 1,
+      height: maxCandidates,
+      tags: true,
+      style: { fg: "white" }
+    });
+
+    let buffer = initialValue;
+    let highlight = -1;
+    let matches: string[] = [];
+
+    const filterMatches = (): string[] => {
+      const needle = buffer.toLowerCase();
+      if (needle.length === 0) return candidates.slice(0, maxCandidates);
+      return candidates
+        .filter((path) => path.toLowerCase().includes(needle))
+        .slice(0, maxCandidates);
+    };
+
+    const renderInput = (): void => {
+      inputField.setContent(` ${buffer}█`);
+    };
+
+    const renderMatches = (): void => {
+      if (matches.length === 0) {
+        matchesPane.setContent("  {gray-fg}(no matches — Enter will create a new path){/}");
+        return;
+      }
+      matchesPane.setContent(
+        matches
+          .map((path, index) => {
+            const marker = index === highlight ? "▸" : " ";
+            const styled = index === highlight ? `{cyan-fg}{bold}${path}{/bold}{/cyan-fg}` : path;
+            return `  ${marker} ${styled}`;
+          })
+          .join("\n")
+      );
+    };
+
+    const recompute = (): void => {
+      matches = filterMatches();
+      if (highlight >= matches.length) highlight = matches.length - 1;
+      renderInput();
+      renderMatches();
+      screen.render();
+    };
+
+    let settled = false;
+    const finish = (value: string | undefined): void => {
+      if (settled) return;
+      settled = true;
+      detach();
+      overlay.destroy();
+      screen.render();
+      resolve(value);
+    };
+
+    attach((ch, key) => {
+      if (key === undefined) return;
+      const name = key.name;
+      if (name === "escape" || (key.ctrl === true && name === "c")) {
+        finish(undefined);
+        return;
+      }
+      if (name === "return" || name === "enter") {
+        if (highlight >= 0 && matches[highlight] !== undefined) {
+          finish(matches[highlight]);
+        } else {
+          finish(buffer);
+        }
+        return;
+      }
+      if (name === "tab") {
+        const target = highlight >= 0 ? matches[highlight] : matches[0];
+        if (target !== undefined) {
+          buffer = target;
+          highlight = -1;
+          recompute();
+        }
+        return;
+      }
+      if (name === "down") {
+        if (matches.length === 0) return;
+        highlight = Math.min(matches.length - 1, highlight + 1);
+        renderMatches();
+        screen.render();
+        return;
+      }
+      if (name === "up") {
+        if (highlight <= 0) {
+          highlight = -1;
+        } else {
+          highlight -= 1;
+        }
+        renderMatches();
+        screen.render();
+        return;
+      }
+      if (name === "backspace") {
+        buffer = buffer.slice(0, -1);
+        highlight = -1;
+        recompute();
+        return;
+      }
+      if (typeof ch === "string" && ch.length === 1 && ch >= " " && ch !== "\x7f") {
+        buffer += ch;
+        highlight = -1;
+        recompute();
+      }
+    });
+
+    recompute();
+  });
+}
+
+
+async function runLinePromptReview(vaultPath: string, planId: string, io: InteractiveReviewIo): Promise<void> {
   const plan = await readPatchPlan(vaultPath, planId);
   const approvalState = await readApprovalState(vaultPath, planId);
   const decidedItemIds = new Set(approvalState.decisions.map((decision) => decision.itemId));
@@ -86,9 +700,6 @@ export async function runInteractiveReview(vaultPath: string, planId: string, io
     currentIndex += 1;
   }
 }
-
-type PendingItem = PatchPlan["items"][number];
-type InteractiveAction = ReviewActionInput | "next" | "previous" | "skip" | "quit";
 
 async function askForAction(
   review: LinePrompt,
@@ -296,6 +907,22 @@ function normalizeAnswer(answer: string): string {
 
 function writeLine(output: Writable, line: string): void {
   output.write(`${line}\n`);
+}
+
+function wrap(value: string, width: number): string[] {
+  const words = value.split(/\s+/);
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    if ((current + " " + word).trim().length > width) {
+      if (current.length > 0) lines.push(current);
+      current = word;
+    } else {
+      current = (current + " " + word).trim();
+    }
+  }
+  if (current.length > 0) lines.push(current);
+  return lines;
 }
 
 class LinePrompt {

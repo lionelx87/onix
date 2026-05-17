@@ -13,6 +13,16 @@ export type CloseSessionResult = {
   reviewRendering: string;
 };
 
+export type CloseSessionStage =
+  | { stage: "vault-index-built"; noteCount: number }
+  | { stage: "captures-interpreted"; captureChars: number }
+  | { stage: "plan-generated"; itemCount: number };
+
+export type CloseSessionOptions = {
+  proposalEngine?: ProposalEngine;
+  onStage?: (stage: CloseSessionStage) => void;
+};
+
 export class NoActiveSessionError extends Error {
   constructor() {
     super("No Active Session found. Run: onix --vault <path> start");
@@ -33,13 +43,17 @@ export class SessionInboxNotFoundError extends Error {
 
 export async function closeSession(
   vaultPath: string,
-  proposalEngine: ProposalEngine = createStubProposalEngine()
+  options: ProposalEngine | CloseSessionOptions = {}
 ): Promise<CloseSessionResult> {
+  const normalized = isProposalEngine(options) ? { proposalEngine: options } : options;
+  const proposalEngine = normalized.proposalEngine ?? createStubProposalEngine();
+  const onStage = normalized.onStage;
   const layout = storeLayout(".onix");
   const activeSession = await readActiveSession(vaultPath);
   const inbox = await readSessionInbox(vaultPath, activeSession);
   const freeformCapture = stripSessionFrontmatter(inbox.content);
   const vaultIndex = await buildVaultIndex(vaultPath);
+  onStage?.({ stage: "vault-index-built", noteCount: vaultIndex.notes.length });
   const vaultIndexRef = posix.join(layout.transient.vaultIndexes, "vault-index.json");
   const candidateNotePaths = selectCandidateNotes(vaultIndex, freeformCapture);
   const candidateNotes = await Promise.all(
@@ -48,6 +62,7 @@ export async function closeSession(
       content: await readFile(join(vaultPath, candidatePath), "utf8")
     }))
   );
+  onStage?.({ stage: "captures-interpreted", captureChars: freeformCapture.length });
 
   await mkdir(join(vaultPath, layout.transient.vaultIndexes), { recursive: true });
   await writeFile(join(vaultPath, vaultIndexRef), JSON.stringify(vaultIndex, null, 2));
@@ -66,8 +81,13 @@ export async function closeSession(
 
   await mkdir(join(vaultPath, layout.transient.patchPlans), { recursive: true });
   await writeFile(join(vaultPath, layout.transient.patchPlans, `${plan.planId}.json`), JSON.stringify(plan, null, 2));
+  onStage?.({ stage: "plan-generated", itemCount: plan.items.length });
 
   return { plan, reviewRendering };
+}
+
+function isProposalEngine(value: ProposalEngine | CloseSessionOptions): value is ProposalEngine {
+  return typeof (value as ProposalEngine).propose === "function";
 }
 
 async function readSessionInbox(
