@@ -143,6 +143,56 @@ describe("Session Closing", () => {
     expect(output).not.toContain("## Knowledge/Session Inbox.md");
   });
 
+  test("routes a Freeform Capture to a stored Classification Rule destination on later close", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "onix-vault-"));
+    const stdout: string[] = [];
+    const consoleLog = vi.spyOn(console, "log").mockImplementation((value: string) => stdout.push(value));
+
+    try {
+      await mkdir(join(vault, ".onix"), { recursive: true });
+      await writeFile(
+        join(vault, ".onix", "classification-rules.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            rules: [
+              {
+                id: "rule-1",
+                pattern: "Review Workflows",
+                destinationPath: "Knowledge/Review Workflows.md",
+                approvedAt: "2026-05-17T00:00:00.000Z"
+              }
+            ]
+          },
+          null,
+          2
+        )
+      );
+
+      await createCli().exitOverride().parseAsync(["node", "onix", "--vault", vault, "start"]);
+
+      const sessionInboxFiles = await readdir(join(vault, "Onix", "Sessions"));
+      const inboxPath = join(vault, "Onix", "Sessions", sessionInboxFiles[0] ?? "");
+      await writeFile(
+        inboxPath,
+        `${await readFile(inboxPath, "utf8")}\nReview Workflows should keep human approval explicit.\n`
+      );
+
+      await createCli().exitOverride().parseAsync(["node", "onix", "--vault", vault, "close", "--no-review"]);
+    } finally {
+      consoleLog.mockRestore();
+    }
+
+    const plan = JSON.parse(await readFile(join(vault, ".onix", "plans", "stubbed-plan.json"), "utf8")) as {
+      items?: Array<{ destinationPath?: string; proposedContent?: string; learningCapture?: string }>;
+    };
+
+    expect(plan.items?.[0]).toMatchObject({
+      destinationPath: "Knowledge/Review Workflows.md",
+      learningCapture: "Review Workflows should keep human approval explicit."
+    });
+  });
+
   test("closes a session after the visible Session Inbox is renamed", async () => {
     const vault = await mkdtemp(join(tmpdir(), "onix-vault-"));
     const stdout: string[] = [];
@@ -329,6 +379,90 @@ describe("Integrated Review", () => {
         action: "move",
         destinationPath: "Knowledge/Review Workflows.md",
         content: "CLI decisions should stay testable."
+      }
+    ]);
+  });
+
+  test("records a Rule Candidate alongside a move Review Action without persisting a Classification Rule", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "onix-vault-"));
+
+    await writeReviewPlan(vault);
+    await createCli()
+      .exitOverride()
+      .parseAsync([
+        "node",
+        "onix",
+        "--vault",
+        vault,
+        "review",
+        "review-plan",
+        "--move",
+        "item-1",
+        "--destination",
+        "Knowledge/Review Workflows.md"
+      ]);
+
+    const approvalState = JSON.parse(
+      await readFile(join(vault, ".onix", "approvals", "review-plan.json"), "utf8")
+    ) as { ruleCandidates?: unknown[] };
+
+    expect(approvalState.ruleCandidates).toEqual([
+      {
+        id: "rule-candidate-1",
+        fromItemId: "item-1",
+        pattern: "CLI decisions should stay testable.",
+        destinationPath: "Knowledge/Review Workflows.md"
+      }
+    ]);
+
+    await expect(readFile(join(vault, ".onix", "classification-rules.json"), "utf8")).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+  });
+
+  test("persists an approved Classification Rule to the versioned store after explicit approval", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "onix-vault-"));
+
+    await writeReviewPlan(vault);
+    await createCli()
+      .exitOverride()
+      .parseAsync([
+        "node",
+        "onix",
+        "--vault",
+        vault,
+        "review",
+        "review-plan",
+        "--move",
+        "item-1",
+        "--destination",
+        "Knowledge/Review Workflows.md"
+      ]);
+
+    await createCli()
+      .exitOverride()
+      .parseAsync([
+        "node",
+        "onix",
+        "--vault",
+        vault,
+        "review",
+        "review-plan",
+        "--approve-rule",
+        "rule-candidate-1"
+      ]);
+
+    const rulesStore = JSON.parse(
+      await readFile(join(vault, ".onix", "classification-rules.json"), "utf8")
+    ) as { schemaVersion?: number; rules?: Array<Record<string, unknown>> };
+
+    expect(rulesStore.schemaVersion).toBe(1);
+    expect(rulesStore.rules).toEqual([
+      {
+        id: "rule-1",
+        pattern: "CLI decisions should stay testable.",
+        destinationPath: "Knowledge/Review Workflows.md",
+        approvedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/)
       }
     ]);
   });
@@ -743,6 +877,38 @@ describe("Apply", () => {
     expect(output).not.toContain("Knowledge/Pending.md");
   });
 
+  test("never persists a Classification Rule during apply when --approve-rule was not invoked", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "onix-vault-"));
+
+    await writeActiveSession(vault);
+    await writeApplyPlan(vault);
+    await writeApprovalState(vault, {
+      planId: "apply-plan",
+      decisions: [
+        {
+          itemId: "moved",
+          action: "move",
+          destinationPath: "Knowledge/Moved.md",
+          content: "Moved durable learning."
+        }
+      ],
+      ruleCandidates: [
+        {
+          id: "rule-candidate-1",
+          fromItemId: "moved",
+          pattern: "Moved durable learning.",
+          destinationPath: "Knowledge/Moved.md"
+        }
+      ]
+    });
+
+    await createCli().exitOverride().parseAsync(["node", "onix", "--vault", vault, "apply", "apply-plan"]);
+
+    await expect(readFile(join(vault, ".onix", "classification-rules.json"), "utf8")).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+  });
+
   test("writes approved Research Candidates and Reference Items outside Consolidated Knowledge", async () => {
     const vault = await mkdtemp(join(tmpdir(), "onix-vault-"));
 
@@ -1137,12 +1303,12 @@ async function writeApplyRefinementPlan(vault: string): Promise<void> {
 
 async function writeApprovalState(
   vault: string,
-  approvalState: { planId: string; decisions: unknown[] }
+  approvalState: { planId: string; decisions: unknown[]; ruleCandidates?: unknown[] }
 ): Promise<void> {
   await mkdir(join(vault, ".onix", "approvals"), { recursive: true });
   await writeFile(
     join(vault, ".onix", "approvals", `${approvalState.planId}.json`),
-    JSON.stringify({ schemaVersion: 1, ...approvalState }, null, 2)
+    JSON.stringify({ schemaVersion: 1, ruleCandidates: [], ...approvalState }, null, 2)
   );
 }
 

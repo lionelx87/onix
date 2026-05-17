@@ -1,5 +1,5 @@
-import type { PatchPlan, ProposalEngine, ProposalEngineInput } from "./contract.js";
-import { parsePatchPlan } from "./contract.js";
+import type { ClassificationRule, PatchPlan, ProposalEngine, ProposalEngineInput } from "./contract.js";
+import { parsePatchPlan, proposalEngineInputSchema } from "./contract.js";
 import type { VaultIndexNote } from "../vault-index.js";
 
 type InterpretedCapture = {
@@ -9,7 +9,8 @@ type InterpretedCapture = {
 
 export function createStubProposalEngine(): ProposalEngine {
   return {
-    async propose(input: ProposalEngineInput): Promise<PatchPlan> {
+    async propose(rawInput: ProposalEngineInput): Promise<PatchPlan> {
+      const input = proposalEngineInputSchema.parse(rawInput);
       const captures = interpretFreeformCaptures(input.freeformCapture);
       const primaryDestination = selectPrimaryDestination(input);
 
@@ -49,8 +50,9 @@ export function createStubProposalEngine(): ProposalEngine {
             };
           }
 
+          const matchedRule = matchClassificationRule(capture.text, input.classificationRules);
           const kind = classifyCapture(capture.text);
-          const destination = destinationFor(kind, primaryDestination?.path);
+          const destination = matchedRule?.destinationPath ?? destinationFor(kind, primaryDestination?.path);
           const primaryTopic = primaryTopicFor(kind, primaryDestination);
           const relatedTopics = relatedTopicsFor(capture.text, primaryTopic);
 
@@ -68,6 +70,20 @@ export function createStubProposalEngine(): ProposalEngine {
       });
     }
   };
+}
+
+function matchClassificationRule(
+  captureText: string,
+  rules: ClassificationRule[]
+): { destinationPath: string } | undefined {
+  const haystack = captureText.toLowerCase();
+  for (const rule of rules) {
+    if (rule.pattern.length > 0 && haystack.includes(rule.pattern.toLowerCase())) {
+      return { destinationPath: rule.destinationPath };
+    }
+  }
+
+  return undefined;
 }
 
 function findPureDuplicate(

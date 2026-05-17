@@ -1,6 +1,7 @@
 import { Command } from "@commander-js/extra-typings";
 import type { Readable, Writable } from "node:stream";
 import { recordReviewAction, type ReviewActionInput } from "./approval-state.js";
+import { approveClassificationRule } from "./classification-rules.js";
 import { runInteractiveReview } from "./interactive-review.js";
 import { renderIntegratedReview } from "./integrated-review.js";
 import { storeLayout } from "./operational-store/layout.js";
@@ -78,10 +79,17 @@ export function createCli(io: CliIo = {}): Command {
     .option("--content <markdown>", "edited Consolidated Knowledge content for --edit")
     .option("--destination <path>", "new destination note path for --move")
     .option("--part <markdown>", "split part content for --split", collectOption, [] as string[])
+    .option("--approve-rule <rule-id>", "persist a Rule Candidate as a Classification Rule")
     .option("--render", "render Review Markdown without recording Approval State")
     .action(async (planId, reviewOptions) => {
       const options = program.opts();
       const vaultPath = requireVaultPath(program, options.vault);
+
+      if (reviewOptions.approveRule !== undefined) {
+        const rule = await approveClassificationRule(vaultPath, planId, reviewOptions.approveRule);
+        console.log(`Persisted Classification Rule ${rule.id} from ${reviewOptions.approveRule}`);
+        return;
+      }
 
       const action = reviewActionFromOptions(program, reviewOptions);
       if (action !== undefined) {

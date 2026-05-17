@@ -1,5 +1,6 @@
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join, posix } from "node:path";
+import { readClassificationRules } from "./classification-rules.js";
 import { storeLayout } from "./operational-store/layout.js";
 import type { PatchPlan, ProposalEngine } from "./proposal-engine/contract.js";
 import { createStubProposalEngine } from "./proposal-engine/stub.js";
@@ -51,13 +52,15 @@ export async function closeSession(
   await mkdir(join(vaultPath, layout.transient.vaultIndexes), { recursive: true });
   await writeFile(join(vaultPath, vaultIndexRef), JSON.stringify(vaultIndex, null, 2));
 
+  const classificationRulesStore = await readClassificationRules(vaultPath);
   const plan = await proposalEngine.propose({
     schemaVersion: 1,
     sessionInboxPath: inbox.relativePath,
     freeformCapture,
     vaultIndexRef,
     vaultIndex,
-    candidateNotes
+    candidateNotes,
+    classificationRules: classificationRulesStore.rules
   });
   const reviewRendering = renderReview(plan);
 

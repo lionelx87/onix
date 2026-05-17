@@ -122,6 +122,24 @@ pnpm onix --vault /path/to/vault review stubbed-plan --discard item-1
 
 Editing copied Review Markdown directly is not treated as approval. The apply step will use the Approval State file, not freeform Markdown edits.
 
+### Approve a Classification Rule
+
+Each `move` Review Action generates a Rule Candidate in the transient Approval State, recording the moved Learning Capture as a substring `pattern` paired with the new destination. Rule Candidates are not active until you approve them explicitly:
+
+```bash
+pnpm onix --vault /path/to/vault review stubbed-plan --approve-rule rule-candidate-1
+```
+
+`--vault` and the Patch Plan identifier are required. Approval writes a Classification Rule to the versioned Classification Rules Store:
+
+```text
+/path/to/vault/.onix/classification-rules.json
+```
+
+This file is the only piece of state under `.onix/` that is treated as Versioned Tool State suitable for Git. Generated plans, Approval State, indexes, logs, and caches stay transient. Without `--approve-rule`, a Rule Candidate never leaves the Approval State, so `apply` cannot silently turn corrections into rules.
+
+On the next `close`, the Proposal Engine consults the Classification Rules Store. A Freeform Capture whose text contains a stored rule's `pattern` (case-insensitive substring match) is routed to that rule's `destinationPath` instead of the default heuristic, so repeated organization preferences stay applied without re-correcting every session.
+
 ### Apply Approved Consolidated Knowledge
 
 ```bash

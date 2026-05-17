@@ -17,6 +17,15 @@ const vaultIndexSchema: z.ZodType<VaultIndex> = z.object({
   notes: z.array(vaultIndexNoteSchema)
 });
 
+export const classificationRuleSchema = z.object({
+  id: z.string().min(1),
+  pattern: z.string().min(1),
+  destinationPath: z.string().min(1),
+  approvedAt: z.string().min(1)
+});
+
+export type ClassificationRule = z.infer<typeof classificationRuleSchema>;
+
 export const proposalEngineInputSchema = z.object({
   schemaVersion: z.literal(1),
   sessionInboxPath: z.string().min(1),
@@ -28,7 +37,8 @@ export const proposalEngineInputSchema = z.object({
       path: z.string().min(1),
       content: z.string()
     })
-  )
+  ),
+  classificationRules: z.array(classificationRuleSchema).default([])
 });
 
 export const patchPlanSchema = z.object({
