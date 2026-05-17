@@ -476,14 +476,14 @@ async function promptForPath(
   detach: () => void
 ): Promise<string | undefined> {
   return await new Promise((resolve) => {
-    const maxCandidates = 8;
+    const maxVisible = 8;
 
     const overlay = blessed.box({
       parent: screen,
       top: "center",
       left: "center",
       width: "80%",
-      height: maxCandidates + 7,
+      height: maxVisible + 8,
       border: { type: "line" },
       style: { border: { fg: "cyan" } },
       label: " Move destination ",
@@ -517,46 +517,89 @@ async function promptForPath(
       top: 5,
       left: 1,
       right: 1,
-      height: maxCandidates,
+      height: maxVisible,
       tags: true,
       style: { fg: "white" }
     });
 
+    const footer = blessed.text({
+      parent: overlay,
+      top: 5 + maxVisible,
+      left: 1,
+      right: 1,
+      height: 1,
+      tags: true,
+      content: ""
+    });
+
     let buffer = initialValue;
     let highlight = -1;
+    let scrollOffset = 0;
     let matches: string[] = [];
 
     const filterMatches = (): string[] => {
       const needle = buffer.toLowerCase();
-      if (needle.length === 0) return candidates.slice(0, maxCandidates);
-      return candidates
-        .filter((path) => path.toLowerCase().includes(needle))
-        .slice(0, maxCandidates);
+      if (needle.length === 0) return candidates.slice();
+      return candidates.filter((path) => path.toLowerCase().includes(needle));
     };
 
     const renderInput = (): void => {
       inputField.setContent(` ${buffer}█`);
     };
 
+    const ensureHighlightVisible = (): void => {
+      if (highlight < 0) {
+        scrollOffset = 0;
+        return;
+      }
+      if (highlight < scrollOffset) {
+        scrollOffset = highlight;
+      } else if (highlight >= scrollOffset + maxVisible) {
+        scrollOffset = highlight - maxVisible + 1;
+      }
+    };
+
+    const renderFooter = (): void => {
+      if (matches.length <= maxVisible) {
+        footer.setContent("");
+        return;
+      }
+      const visibleStart = scrollOffset + 1;
+      const visibleEnd = Math.min(matches.length, scrollOffset + maxVisible);
+      const hasAbove = scrollOffset > 0;
+      const hasBelow = visibleEnd < matches.length;
+      const arrows = `${hasAbove ? "↑" : " "}${hasBelow ? "↓" : " "}`;
+      footer.setContent(
+        `  {gray-fg}${visibleStart}-${visibleEnd} of ${matches.length}  ${arrows}{/}`
+      );
+    };
+
     const renderMatches = (): void => {
       if (matches.length === 0) {
         matchesPane.setContent("  {gray-fg}(no matches — Enter will create a new path){/}");
+        renderFooter();
         return;
       }
+      const visibleEnd = Math.min(matches.length, scrollOffset + maxVisible);
+      const visible = matches.slice(scrollOffset, visibleEnd);
       matchesPane.setContent(
-        matches
+        visible
           .map((path, index) => {
-            const marker = index === highlight ? "▸" : " ";
-            const styled = index === highlight ? `{cyan-fg}{bold}${path}{/bold}{/cyan-fg}` : path;
+            const absoluteIndex = scrollOffset + index;
+            const marker = absoluteIndex === highlight ? "▸" : " ";
+            const styled =
+              absoluteIndex === highlight ? `{cyan-fg}{bold}${path}{/bold}{/cyan-fg}` : path;
             return `  ${marker} ${styled}`;
           })
           .join("\n")
       );
+      renderFooter();
     };
 
     const recompute = (): void => {
       matches = filterMatches();
       if (highlight >= matches.length) highlight = matches.length - 1;
+      ensureHighlightVisible();
       renderInput();
       renderMatches();
       screen.render();
@@ -591,24 +634,48 @@ async function promptForPath(
         const target = highlight >= 0 ? matches[highlight] : matches[0];
         if (target !== undefined) {
           buffer = target;
-          highlight = -1;
-          recompute();
+          matches = filterMatches();
+          highlight = matches.length > 0 ? 0 : -1;
+          ensureHighlightVisible();
+          renderInput();
+          renderMatches();
+          screen.render();
         }
         return;
       }
       if (name === "down") {
         if (matches.length === 0) return;
         highlight = Math.min(matches.length - 1, highlight + 1);
+        ensureHighlightVisible();
         renderMatches();
         screen.render();
         return;
       }
       if (name === "up") {
+        if (matches.length === 0) return;
         if (highlight <= 0) {
           highlight = -1;
+          scrollOffset = 0;
         } else {
           highlight -= 1;
+          ensureHighlightVisible();
         }
+        renderMatches();
+        screen.render();
+        return;
+      }
+      if (name === "pageup") {
+        if (matches.length === 0) return;
+        highlight = Math.max(0, (highlight < 0 ? 0 : highlight) - maxVisible);
+        ensureHighlightVisible();
+        renderMatches();
+        screen.render();
+        return;
+      }
+      if (name === "pagedown") {
+        if (matches.length === 0) return;
+        highlight = Math.min(matches.length - 1, (highlight < 0 ? -1 : highlight) + maxVisible);
+        ensureHighlightVisible();
         renderMatches();
         screen.render();
         return;
