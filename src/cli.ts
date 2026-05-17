@@ -1,11 +1,20 @@
 import { Command } from "@commander-js/extra-typings";
+import type { Readable, Writable } from "node:stream";
 import { recordReviewAction, type ReviewActionInput } from "./approval-state.js";
+import { runInteractiveReview } from "./interactive-review.js";
 import { renderIntegratedReview } from "./integrated-review.js";
 import { storeLayout } from "./operational-store/layout.js";
 import { closeSession, NoActiveSessionError, SessionInboxNotFoundError } from "./session-close.js";
 import { ActiveSessionAlreadyExistsError, startSession } from "./session-start.js";
 
-export function createCli(): Command {
+export type CliIo = {
+  input?: Readable;
+  output?: Writable;
+};
+
+export function createCli(io: CliIo = {}): Command {
+  const input = io.input ?? process.stdin;
+  const output = io.output ?? process.stdout;
   const program = new Command()
     .name("onix")
     .description("Local CLI for Learning Capture workflows in an Obsidian vault")
@@ -35,7 +44,8 @@ export function createCli(): Command {
     .command("close")
     .description("close the Active Session and generate a reviewable Patch Plan")
     .option("--stub <fixture>", "use a deterministic Proposal Engine fixture")
-    .action(async () => {
+    .option("--no-review", "generate the Patch Plan without launching interactive Integrated Review")
+    .action(async (closeOptions) => {
       const options = program.opts();
       const vaultPath = requireVaultPath(program, options.vault);
 
@@ -49,6 +59,10 @@ export function createCli(): Command {
 
       console.log(`Generated Patch Plan: ${plan.planId}`);
       console.log(reviewRendering);
+
+      if (closeOptions.review !== false && plan.items.length > 0) {
+        await runInteractiveReview(vaultPath, plan.planId, { input, output });
+      }
     });
 
   program
@@ -63,6 +77,7 @@ export function createCli(): Command {
     .option("--content <markdown>", "edited Consolidated Knowledge content for --edit")
     .option("--destination <path>", "new destination note path for --move")
     .option("--part <markdown>", "split part content for --split", collectOption, [] as string[])
+    .option("--render", "render Review Markdown without recording Approval State")
     .action(async (planId, reviewOptions) => {
       const options = program.opts();
       const vaultPath = requireVaultPath(program, options.vault);
@@ -74,7 +89,12 @@ export function createCli(): Command {
         return;
       }
 
-      console.log(await renderIntegratedReview(vaultPath, planId));
+      if (reviewOptions.render === true) {
+        console.log(await renderIntegratedReview(vaultPath, planId));
+        return;
+      }
+
+      await runInteractiveReview(vaultPath, planId, { input, output });
     });
 
   program

@@ -37,10 +37,14 @@ export async function recordReviewAction(vaultPath: string, planId: string, inpu
   const layout = storeLayout(".onix");
   const plan = await readPatchPlan(vaultPath, planId);
   const decision = decisionFor(plan, input);
+  const existingApprovalState = await readApprovalState(vaultPath, planId);
   const approvalState: ApprovalState = {
     schemaVersion: 1,
     planId,
-    decisions: [decision]
+    decisions: [
+      ...existingApprovalState.decisions.filter((existingDecision) => existingDecision.itemId !== input.itemId),
+      decision
+    ]
   };
 
   await mkdir(join(vaultPath, layout.transient.approvalState), { recursive: true });
@@ -52,11 +56,30 @@ export async function recordReviewAction(vaultPath: string, planId: string, inpu
   return approvalState;
 }
 
-async function readPatchPlan(vaultPath: string, planId: string): Promise<PatchPlan> {
+export async function readPatchPlan(vaultPath: string, planId: string): Promise<PatchPlan> {
   const layout = storeLayout(".onix");
   const planJson = await readFile(join(vaultPath, layout.transient.patchPlans, `${planId}.json`), "utf8");
 
   return parsePatchPlan(JSON.parse(planJson));
+}
+
+export async function readApprovalState(vaultPath: string, planId: string): Promise<ApprovalState> {
+  const layout = storeLayout(".onix");
+
+  try {
+    const approvalJson = await readFile(join(vaultPath, layout.transient.approvalState, `${planId}.json`), "utf8");
+    return JSON.parse(approvalJson) as ApprovalState;
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return {
+        schemaVersion: 1,
+        planId,
+        decisions: []
+      };
+    }
+
+    throw error;
+  }
 }
 
 function decisionFor(plan: PatchPlan, input: ReviewActionInput): ApprovalDecision {
@@ -108,4 +131,8 @@ function decisionFor(plan: PatchPlan, input: ReviewActionInput): ApprovalDecisio
     itemId: input.itemId,
     action: "discard"
   };
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
 }

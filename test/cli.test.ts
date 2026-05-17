@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import { mkdir, mkdtemp, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
+import { PassThrough, Writable } from "node:stream";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createCli } from "../src/cli.js";
@@ -96,7 +97,7 @@ describe("Session Closing", () => {
       const inboxPath = join(vault, "Onix", "Sessions", sessionInboxFiles[0] ?? "");
       await writeFile(inboxPath, `${await readFile(inboxPath, "utf8")}\nCLI scaffolds should keep provider calls behind a contract.\n`);
 
-      await createCli().exitOverride().parseAsync(["node", "onix", "--vault", vault, "close"]);
+      await createCli().exitOverride().parseAsync(["node", "onix", "--vault", vault, "close", "--no-review"]);
     } finally {
       consoleLog.mockRestore();
     }
@@ -124,7 +125,7 @@ describe("Session Closing", () => {
 
     try {
       await createCli().exitOverride().parseAsync(["node", "onix", "--vault", vault, "start"]);
-      await createCli().exitOverride().parseAsync(["node", "onix", "--vault", vault, "close"]);
+      await createCli().exitOverride().parseAsync(["node", "onix", "--vault", vault, "close", "--no-review"]);
     } finally {
       consoleLog.mockRestore();
     }
@@ -157,7 +158,7 @@ describe("Session Closing", () => {
       await writeFile(originalInboxPath, `${await readFile(originalInboxPath, "utf8")}\nRenamed inboxes should still close.\n`);
       await rename(originalInboxPath, renamedInboxPath);
 
-      await createCli().exitOverride().parseAsync(["node", "onix", "--vault", vault, "close"]);
+      await createCli().exitOverride().parseAsync(["node", "onix", "--vault", vault, "close", "--no-review"]);
     } finally {
       consoleLog.mockRestore();
     }
@@ -181,7 +182,7 @@ describe("Integrated Review", () => {
     try {
       await writeReviewPlan(vault);
 
-      await createCli().exitOverride().parseAsync(["node", "onix", "--vault", vault, "review", "review-plan"]);
+      await createCli().exitOverride().parseAsync(["node", "onix", "--vault", vault, "review", "review-plan", "--render"]);
     } finally {
       consoleLog.mockRestore();
     }
@@ -203,7 +204,7 @@ describe("Integrated Review", () => {
     try {
       await writeReviewPlan(vault);
 
-      await createCli().exitOverride().parseAsync(["node", "onix", "--vault", vault, "review", "review-plan"]);
+      await createCli().exitOverride().parseAsync(["node", "onix", "--vault", vault, "review", "review-plan", "--render"]);
     } finally {
       consoleLog.mockRestore();
     }
@@ -363,6 +364,123 @@ describe("Integrated Review", () => {
       }
     ]);
   });
+
+  test("runs an interactive review from close and records Review Actions without low-level flags", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "onix-vault-"));
+    const output = createWritableCapture();
+
+    await createCli().exitOverride().parseAsync(["node", "onix", "--vault", vault, "start"]);
+
+    const sessionInboxFiles = await readdir(join(vault, "Onix", "Sessions"));
+    const inboxPath = join(vault, "Onix", "Sessions", sessionInboxFiles[0] ?? "");
+    await writeFile(
+      inboxPath,
+      `${await readFile(inboxPath, "utf8")}\nApprove this durable learning.\nEdit this durable learning.\nMove this durable learning.\nSplit this durable learning.\nDiscard this reminder.\n`
+    );
+
+    await createCli({
+      input: createReadableInput([
+        "a",
+        "e",
+        "Edited durable learning.",
+        "m",
+        "Knowledge/Moved.md",
+        "s",
+        "First split learning.",
+        "Second split learning.",
+        "",
+        "d"
+      ]),
+      output
+    })
+      .exitOverride()
+      .parseAsync(["node", "onix", "--vault", vault, "close"]);
+
+    const approvalState = JSON.parse(
+      await readFile(join(vault, ".onix", "approvals", "stubbed-plan.json"), "utf8")
+    ) as { decisions?: unknown[] };
+
+    expect(approvalState.decisions).toEqual([
+      {
+        itemId: "item-1",
+        action: "approve",
+        destinationPath: "Knowledge/Session Inbox.md",
+        content: "Approve this durable learning."
+      },
+      {
+        itemId: "item-2",
+        action: "edit",
+        destinationPath: "Knowledge/Session Inbox.md",
+        content: "Edited durable learning."
+      },
+      {
+        itemId: "item-3",
+        action: "move",
+        destinationPath: "Knowledge/Moved.md",
+        content: "Move this durable learning."
+      },
+      {
+        itemId: "item-4",
+        action: "split",
+        parts: [
+          {
+            destinationPath: "Knowledge/Session Inbox.md",
+            content: "First split learning."
+          },
+          {
+            destinationPath: "Knowledge/Session Inbox.md",
+            content: "Second split learning."
+          }
+        ]
+      },
+      {
+        itemId: "item-5",
+        action: "discard"
+      }
+    ]);
+    expect(output.content()).toContain("Interactive Integrated Review");
+    expect(output.content()).toContain("Destination: Knowledge/Session Inbox.md");
+    expect(output.content()).toContain("Source: Onix/Sessions/");
+    expect(output.content()).toContain("Choose action");
+  });
+
+  test("can skip an item and resume the interactive review later", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "onix-vault-"));
+
+    await writeReviewPlan(vault);
+
+    await createCli({ input: createReadableInput(["k", "a"]), output: createWritableCapture() })
+      .exitOverride()
+      .parseAsync(["node", "onix", "--vault", vault, "review", "review-plan"]);
+
+    expect((await readApprovalState(vault)).decisions).toEqual([
+      {
+        itemId: "item-2",
+        action: "approve",
+        destinationPath: "Onix/Research Inbox.md",
+        content: "Research: command UX examples."
+      }
+    ]);
+
+    await createCli({ input: createReadableInput(["a"]), output: createWritableCapture() })
+      .exitOverride()
+      .parseAsync(["node", "onix", "--vault", vault, "review", "review-plan"]);
+
+    expect((await readApprovalState(vault)).decisions).toEqual([
+      {
+        itemId: "item-2",
+        action: "approve",
+        destinationPath: "Onix/Research Inbox.md",
+        content: "Research: command UX examples."
+      },
+      {
+        itemId: "item-1",
+        action: "approve",
+        destinationPath: "Knowledge/CLI.md",
+        content: "CLI decisions should stay testable."
+      }
+    ]);
+  });
 });
 
 async function writeReviewPlan(vault: string): Promise<void> {
@@ -407,4 +525,25 @@ async function readApprovalState(vault: string): Promise<{ decisions?: unknown[]
   return JSON.parse(await readFile(join(vault, ".onix", "approvals", "review-plan.json"), "utf8")) as {
     decisions?: unknown[];
   };
+}
+
+function createWritableCapture(): Writable & { content(): string } {
+  const chunks: string[] = [];
+  const writable = new Writable({
+    write(chunk, _encoding, callback) {
+      chunks.push(String(chunk));
+      callback();
+    }
+  }) as Writable & { content(): string };
+
+  writable.content = () => chunks.join("");
+
+  return writable;
+}
+
+function createReadableInput(answers: string[]): PassThrough {
+  const input = new PassThrough();
+  input.write(`${answers.join("\n")}\n`);
+
+  return input;
 }
