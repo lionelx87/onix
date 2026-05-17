@@ -18,6 +18,20 @@ export function renderReview(plan: PatchPlan): string {
 
     for (const item of items) {
       lines.push(`- ${item.proposedContent}`);
+      lines.push(`  ID: ${item.id}`);
+      lines.push(`  Kind: ${item.kind}`);
+      lines.push(`  Learning Capture: ${item.learningCapture}`);
+      lines.push(`  Source: ${item.sourceTrace}`);
+
+      if (item.primaryTopic !== undefined) {
+        lines.push(`  Primary Topic: ${item.primaryTopic}`);
+      }
+
+      if (item.relatedTopics.length > 0) {
+        lines.push(`  Related Topics: ${item.relatedTopics.join(", ")}`);
+      }
+
+      lines.push(`  Proposed Content: ${item.proposedContent}`);
     }
 
     lines.push("");

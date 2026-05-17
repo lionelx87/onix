@@ -1,4 +1,6 @@
 import { Command } from "@commander-js/extra-typings";
+import { recordReviewAction, type ReviewActionInput } from "./approval-state.js";
+import { renderIntegratedReview } from "./integrated-review.js";
 import { storeLayout } from "./operational-store/layout.js";
 import { closeSession, NoActiveSessionError, SessionInboxNotFoundError } from "./session-close.js";
 import { ActiveSessionAlreadyExistsError, startSession } from "./session-start.js";
@@ -52,9 +54,27 @@ export function createCli(): Command {
   program
     .command("review")
     .description("render or update the Integrated Review for a Patch Plan")
-    .argument("[plan-id]", "Patch Plan identifier")
-    .action(() => {
-      printPlaceholder("Integrated Review");
+    .argument("<plan-id>", "Patch Plan identifier")
+    .option("--approve <item-id>", "record approve Review Action for a Patch Plan item")
+    .option("--edit <item-id>", "record edit Review Action for a Patch Plan item")
+    .option("--move <item-id>", "record move Review Action for a Patch Plan item")
+    .option("--split <item-id>", "record split Review Action for a Patch Plan item")
+    .option("--discard <item-id>", "record discard Review Action for a Patch Plan item")
+    .option("--content <markdown>", "edited Consolidated Knowledge content for --edit")
+    .option("--destination <path>", "new destination note path for --move")
+    .option("--part <markdown>", "split part content for --split", collectOption, [] as string[])
+    .action(async (planId, reviewOptions) => {
+      const options = program.opts();
+      const vaultPath = requireVaultPath(program, options.vault);
+
+      const action = reviewActionFromOptions(program, reviewOptions);
+      if (action !== undefined) {
+        await recordReviewAction(vaultPath, planId, action);
+        console.log(`Recorded ${action.action} for ${action.itemId}`);
+        return;
+      }
+
+      console.log(await renderIntegratedReview(vaultPath, planId));
     });
 
   program
@@ -82,6 +102,60 @@ export function createCli(): Command {
 
 function printPlaceholder(surface: string): void {
   console.log(`${surface} is scaffolded. Implementation will land in a later tracer bullet.`);
+}
+
+function reviewActionFromOptions(
+  program: Command,
+  options: {
+    approve?: string;
+    edit?: string;
+    move?: string;
+    split?: string;
+    discard?: string;
+    content?: string;
+    destination?: string;
+    part?: string[];
+  }
+): ReviewActionInput | undefined {
+  if (options.approve !== undefined) {
+    return { action: "approve", itemId: options.approve };
+  }
+
+  if (options.edit !== undefined) {
+    if (options.content === undefined) {
+      program.error("Missing edited content. Run: onix --vault <path> review <plan-id> --edit <item-id> --content <markdown>");
+    }
+
+    return { action: "edit", itemId: options.edit, content: options.content };
+  }
+
+  if (options.move !== undefined) {
+    if (options.destination === undefined) {
+      program.error("Missing destination. Run: onix --vault <path> review <plan-id> --move <item-id> --destination <path>");
+    }
+
+    return { action: "move", itemId: options.move, destinationPath: options.destination };
+  }
+
+  if (options.split !== undefined) {
+    if (options.part === undefined || options.part.length < 2) {
+      program.error(
+        "Missing split parts. Run: onix --vault <path> review <plan-id> --split <item-id> --part <markdown> --part <markdown>"
+      );
+    }
+
+    return { action: "split", itemId: options.split, parts: options.part };
+  }
+
+  if (options.discard !== undefined) {
+    return { action: "discard", itemId: options.discard };
+  }
+
+  return undefined;
+}
+
+function collectOption(value: string, previous: string[]): string[] {
+  return [...previous, value];
 }
 
 function requireVaultPath(program: Command, vaultPath: string | undefined): string {

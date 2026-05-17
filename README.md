@@ -56,17 +56,44 @@ The current Proposal Engine is deterministic and provider-independent. It writes
 
 The generated Patch Plan can contain Consolidated Knowledge, Research Candidates, Sensitive Candidates, and No Consolidation Candidates. It records the original Learning Capture, source trace, Primary Topic, Related Topics, destination path when applicable, and proposed content. Tests use deterministic fixtures and do not call a live LLM.
 
+### Review an Organization Proposal
+
+Render the Integrated Review for a generated Patch Plan:
+
+```bash
+pnpm onix --vault /path/to/vault review stubbed-plan
+```
+
+`--vault` is required. The argument is the Patch Plan identifier stored under `.onix/plans/<plan-id>.json`. Rendering the Markdown Review Rendering is read-only and does not create Approval State.
+
+Record structured Approval State with one of the supported Review Actions:
+
+```bash
+pnpm onix --vault /path/to/vault review stubbed-plan --approve item-1
+pnpm onix --vault /path/to/vault review stubbed-plan --edit item-1 --content "Updated durable learning."
+pnpm onix --vault /path/to/vault review stubbed-plan --move item-1 --destination "Knowledge/Review Workflows.md"
+pnpm onix --vault /path/to/vault review stubbed-plan --split item-1 --part "First durable learning." --part "Second durable learning."
+pnpm onix --vault /path/to/vault review stubbed-plan --discard item-1
+```
+
+Approval State is written as structured transient Operational Store state:
+
+```text
+/path/to/vault/.onix/approvals/stubbed-plan.json
+```
+
+Editing copied Review Markdown directly is not treated as approval. The apply step will use the Approval State file, not freeform Markdown edits.
+
 ### Scaffolded Commands
 
 These command surfaces exist for the MVP workflow but are not fully implemented yet:
 
 ```bash
-pnpm onix review
 pnpm onix apply
 pnpm onix status
 ```
 
-`review` and `apply` are scaffolded. `status` currently prints the Operational Store layout.
+`apply` is scaffolded. `status` currently prints the Operational Store layout.
 
 ## Development
 
