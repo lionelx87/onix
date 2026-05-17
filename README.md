@@ -115,16 +115,42 @@ pnpm onix --vault /path/to/vault review stubbed-plan --discard item-1
 
 Editing copied Review Markdown directly is not treated as approval. The apply step will use the Approval State file, not freeform Markdown edits.
 
+### Apply Approved Consolidated Knowledge
+
+```bash
+pnpm onix --vault /path/to/vault apply stubbed-plan
+```
+
+`--vault` is required. The optional argument is the Patch Plan identifier stored under `.onix/plans/<plan-id>.json`; when there is exactly one Patch Plan, `apply` can infer it.
+
+`apply` reads the Patch Plan and Approval State, validates every destination against the Write Boundary, runs Commit Validation to stop if a destination changed after proposal generation, and writes only approved, edited, moved, or split Review Actions. Discarded items are not written, and pending items are ignored.
+
+Approved Consolidated Knowledge is written to thematic vault files inside the initial Write Boundary:
+
+```text
+Knowledge/
+Onix/Research Inbox.md
+References/
+Reference Library/
+```
+
+After write verification succeeds, `apply` deletes the Session Inbox and Active Session state. It ends with a Versioning Review that lists changed vault files for manual Git review. It does not create Git commits.
+
+Minimal usage after review:
+
+```bash
+pnpm onix --vault /path/to/vault apply stubbed-plan
+```
+
 ### Scaffolded Commands
 
 These command surfaces exist for the MVP workflow but are not fully implemented yet:
 
 ```bash
-pnpm onix apply
 pnpm onix status
 ```
 
-`apply` is scaffolded. `status` currently prints the Operational Store layout.
+`status` currently prints the Operational Store layout.
 
 ## Development
 

@@ -4,6 +4,7 @@ import { recordReviewAction, type ReviewActionInput } from "./approval-state.js"
 import { runInteractiveReview } from "./interactive-review.js";
 import { renderIntegratedReview } from "./integrated-review.js";
 import { storeLayout } from "./operational-store/layout.js";
+import { applySession } from "./session-apply.js";
 import { closeSession, NoActiveSessionError, SessionInboxNotFoundError } from "./session-close.js";
 import { ActiveSessionAlreadyExistsError, startSession } from "./session-start.js";
 
@@ -101,8 +102,12 @@ export function createCli(io: CliIo = {}): Command {
     .command("apply")
     .description("apply approved changes after Commit Validation")
     .argument("[plan-id]", "Patch Plan identifier")
-    .action(() => {
-      printPlaceholder("patch application");
+    .action(async (planId) => {
+      const options = program.opts();
+      const vaultPath = requireVaultPath(program, options.vault);
+
+      const { versioningReview } = await applySession(vaultPath, planId);
+      console.log(versioningReview);
     });
 
   program

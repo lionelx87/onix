@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rename, stat, utimes, writeFile } from "node:fs/promises";
 import { PassThrough, Writable } from "node:stream";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -637,6 +637,174 @@ describe("Integrated Review", () => {
   });
 });
 
+describe("Apply", () => {
+  test("applies approved Consolidated Knowledge, cleans up the Session Inbox, and renders Versioning Review", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "onix-vault-"));
+    const stdout: string[] = [];
+    const consoleLog = vi.spyOn(console, "log").mockImplementation((value: string) => stdout.push(value));
+
+    try {
+      await writeActiveSession(vault);
+      await writeApplyPlan(vault);
+      await writeApprovalState(vault, {
+        planId: "apply-plan",
+        decisions: [
+          {
+            itemId: "approved",
+            action: "approve",
+            destinationPath: "Knowledge/CLI.md",
+            content: "Approved durable learning."
+          },
+          {
+            itemId: "edited",
+            action: "edit",
+            destinationPath: "Knowledge/CLI.md",
+            content: "Edited durable learning."
+          },
+          {
+            itemId: "moved",
+            action: "move",
+            destinationPath: "Knowledge/Moved.md",
+            content: "Moved durable learning."
+          },
+          {
+            itemId: "split",
+            action: "split",
+            parts: [
+              {
+                destinationPath: "Knowledge/Split.md",
+                content: "First split durable learning."
+              },
+              {
+                destinationPath: "Knowledge/Split.md",
+                content: "Second split durable learning."
+              }
+            ]
+          },
+          {
+            itemId: "discarded",
+            action: "discard"
+          }
+        ]
+      });
+
+      await createCli().exitOverride().parseAsync(["node", "onix", "--vault", vault, "apply", "apply-plan"]);
+    } finally {
+      consoleLog.mockRestore();
+    }
+
+    await expect(readFile(join(vault, "Knowledge", "CLI.md"), "utf8")).resolves.toBe(
+      "Approved durable learning.\n\nEdited durable learning.\n"
+    );
+    await expect(readFile(join(vault, "Knowledge", "Moved.md"), "utf8")).resolves.toBe("Moved durable learning.\n");
+    await expect(readFile(join(vault, "Knowledge", "Split.md"), "utf8")).resolves.toBe(
+      "First split durable learning.\n\nSecond split durable learning.\n"
+    );
+    await expect(readFile(join(vault, "Knowledge", "Discarded.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(join(vault, "Knowledge", "Pending.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(join(vault, "Onix", "Sessions", "session-inbox.md"), "utf8")).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+    await expect(readFile(join(vault, ".onix", "state", "active-session.json"), "utf8")).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+
+    const output = stdout.join("\n");
+    expect(output).toContain("Versioning Review");
+    expect(output).toContain("Knowledge/CLI.md");
+    expect(output).toContain("Knowledge/Moved.md");
+    expect(output).toContain("Knowledge/Split.md");
+    expect(output).not.toContain("Knowledge/Discarded.md");
+    expect(output).not.toContain("Knowledge/Pending.md");
+  });
+
+  test("rejects destination paths outside the Write Boundary before writing or cleanup", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "onix-vault-"));
+
+    await writeActiveSession(vault);
+    await writeApplyPlan(vault);
+    await writeApprovalState(vault, {
+      planId: "apply-plan",
+      decisions: [
+        {
+          itemId: "approved",
+          action: "move",
+          destinationPath: "../Outside.md",
+          content: "This must not be written."
+        }
+      ]
+    });
+
+    await expect(
+      createCli().exitOverride().parseAsync(["node", "onix", "--vault", vault, "apply", "apply-plan"])
+    ).rejects.toThrow("Destination is outside the Write Boundary: ../Outside.md");
+
+    await expect(readFile(join(vault, "..", "Outside.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(join(vault, "Onix", "Sessions", "session-inbox.md"), "utf8")).resolves.toContain(
+      "onix_session_id"
+    );
+  });
+
+  test("stops when Commit Validation finds a stale destination file", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "onix-vault-"));
+    const destination = join(vault, "Knowledge", "CLI.md");
+
+    await writeActiveSession(vault);
+    await writeApplyPlan(vault);
+    await mkdir(join(vault, "Knowledge"), { recursive: true });
+    await writeFile(destination, "Existing knowledge edited after review.\n");
+    await utimes(destination, new Date(Date.now() + 60_000), new Date(Date.now() + 60_000));
+    await writeApprovalState(vault, {
+      planId: "apply-plan",
+      decisions: [
+        {
+          itemId: "approved",
+          action: "approve",
+          destinationPath: "Knowledge/CLI.md",
+          content: "Approved durable learning."
+        }
+      ]
+    });
+
+    await expect(
+      createCli().exitOverride().parseAsync(["node", "onix", "--vault", vault, "apply", "apply-plan"])
+    ).rejects.toThrow("Destination changed after Patch Plan generation: Knowledge/CLI.md");
+
+    await expect(readFile(destination, "utf8")).resolves.toBe("Existing knowledge edited after review.\n");
+    await expect(readFile(join(vault, "Onix", "Sessions", "session-inbox.md"), "utf8")).resolves.toContain(
+      "onix_session_id"
+    );
+  });
+
+  test("reports failed Session Inbox cleanup after verified writes and keeps Active Session state", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "onix-vault-"));
+
+    await writeActiveSession(vault);
+    await rename(join(vault, "Onix", "Sessions", "session-inbox.md"), join(vault, "Onix", "Sessions", "missing.md"));
+    await writeApplyPlan(vault);
+    await writeApprovalState(vault, {
+      planId: "apply-plan",
+      decisions: [
+        {
+          itemId: "approved",
+          action: "approve",
+          destinationPath: "Knowledge/CLI.md",
+          content: "Approved durable learning."
+        }
+      ]
+    });
+
+    await expect(
+      createCli().exitOverride().parseAsync(["node", "onix", "--vault", vault, "apply", "apply-plan"])
+    ).rejects.toThrow("Failed to clean up Session Inbox");
+
+    await expect(readFile(join(vault, "Knowledge", "CLI.md"), "utf8")).resolves.toBe("Approved durable learning.\n");
+    await expect(readFile(join(vault, ".onix", "state", "active-session.json"), "utf8")).resolves.toContain(
+      "test-session"
+    );
+  });
+});
+
 async function writeReviewPlan(vault: string): Promise<void> {
   await mkdir(join(vault, ".onix", "plans"), { recursive: true });
   await writeFile(
@@ -668,6 +836,102 @@ async function writeReviewPlan(vault: string): Promise<void> {
             proposedContent: "Research: command UX examples."
           }
         ]
+      },
+      null,
+      2
+    )
+  );
+}
+
+async function writeApplyPlan(vault: string): Promise<void> {
+  await mkdir(join(vault, ".onix", "plans"), { recursive: true });
+  await writeFile(
+    join(vault, ".onix", "plans", "apply-plan.json"),
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        planId: "apply-plan",
+        summary: "Apply approved knowledge.",
+        items: [
+          {
+            id: "approved",
+            kind: "consolidated-knowledge",
+            destinationPath: "Knowledge/CLI.md",
+            learningCapture: "Approved durable learning.",
+            sourceTrace: "Onix/Sessions/session-inbox.md line 1",
+            proposedContent: "Approved durable learning."
+          },
+          {
+            id: "edited",
+            kind: "consolidated-knowledge",
+            destinationPath: "Knowledge/CLI.md",
+            learningCapture: "Edit this durable learning.",
+            sourceTrace: "Onix/Sessions/session-inbox.md line 2",
+            proposedContent: "Edit this durable learning."
+          },
+          {
+            id: "moved",
+            kind: "consolidated-knowledge",
+            destinationPath: "Knowledge/Original.md",
+            learningCapture: "Moved durable learning.",
+            sourceTrace: "Onix/Sessions/session-inbox.md line 3",
+            proposedContent: "Moved durable learning."
+          },
+          {
+            id: "split",
+            kind: "consolidated-knowledge",
+            destinationPath: "Knowledge/Split.md",
+            learningCapture: "Split durable learning.",
+            sourceTrace: "Onix/Sessions/session-inbox.md line 4",
+            proposedContent: "Split durable learning."
+          },
+          {
+            id: "discarded",
+            kind: "consolidated-knowledge",
+            destinationPath: "Knowledge/Discarded.md",
+            learningCapture: "Discarded durable learning.",
+            sourceTrace: "Onix/Sessions/session-inbox.md line 5",
+            proposedContent: "Discarded durable learning."
+          },
+          {
+            id: "pending",
+            kind: "consolidated-knowledge",
+            destinationPath: "Knowledge/Pending.md",
+            learningCapture: "Pending durable learning.",
+            sourceTrace: "Onix/Sessions/session-inbox.md line 6",
+            proposedContent: "Pending durable learning."
+          }
+        ]
+      },
+      null,
+      2
+    )
+  );
+}
+
+async function writeApprovalState(
+  vault: string,
+  approvalState: { planId: string; decisions: unknown[] }
+): Promise<void> {
+  await mkdir(join(vault, ".onix", "approvals"), { recursive: true });
+  await writeFile(
+    join(vault, ".onix", "approvals", `${approvalState.planId}.json`),
+    JSON.stringify({ schemaVersion: 1, ...approvalState }, null, 2)
+  );
+}
+
+async function writeActiveSession(vault: string): Promise<void> {
+  await mkdir(join(vault, "Onix", "Sessions"), { recursive: true });
+  await mkdir(join(vault, ".onix", "state"), { recursive: true });
+  await writeFile(join(vault, "Onix", "Sessions", "session-inbox.md"), "---\nonix_session_id: test-session\n---\n");
+  await writeFile(
+    join(vault, ".onix", "state", "active-session.json"),
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        sessionId: "test-session",
+        startedAt: "2026-05-16T00:00:00.000Z",
+        inboxPath: "Onix/Sessions/session-inbox.md"
       },
       null,
       2
