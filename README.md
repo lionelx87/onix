@@ -55,7 +55,7 @@ The current Proposal Engine is deterministic and provider-independent. It writes
 /path/to/vault/.onix/approvals/stubbed-plan.json
 ```
 
-The generated Patch Plan can contain Consolidated Knowledge, Research Candidates, Sensitive Candidates, and No Consolidation Candidates. It records the original Learning Capture, source trace, Primary Topic, Related Topics, destination path when applicable, and proposed content. Tests use deterministic fixtures and do not call a live LLM.
+The generated Patch Plan can contain Consolidated Knowledge, Research Candidates, Reference Items, Sensitive Candidates, and No Consolidation Candidates. It records the original Learning Capture, source trace, Primary Topic, Related Topics, destination path when applicable, and proposed content. Tests use deterministic fixtures and do not call a live LLM.
 
 Use `--no-review` when automation or tests need to generate the Patch Plan without launching the interactive review:
 
@@ -133,6 +133,8 @@ Onix/Research Inbox.md
 References/
 Reference Library/
 ```
+
+Approved Research Candidates are written to `Onix/Research Inbox.md` under their suggested topic. Approved Reference Items are written under `Reference Library/` by topic and include a link back to the learning topic when that improves traceability. Discarded and pending items are not written.
 
 After write verification succeeds, `apply` deletes the Session Inbox and Active Session state. It ends with a Versioning Review that lists changed vault files for manual Git review. It does not create Git commits.
 

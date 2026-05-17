@@ -35,6 +35,7 @@ describe("Proposal Engine contract", () => {
       freeformCapture: [
         "- Primary Topics answer the durable question; bug contexts should be Related Topics.",
         "- Research: https://example.com/vector-search for future vault indexing.",
+        "- Reference: https://example.com/cli-docs documents command UX patterns.",
         "- Secret: production API token was pasted during debugging.",
         "- TODO: buy coffee after the session."
       ].join("\n"),
@@ -62,10 +63,11 @@ describe("Proposal Engine contract", () => {
       ]
     });
 
-    expect(plan.items).toHaveLength(4);
+    expect(plan.items).toHaveLength(5);
     expect(plan.items.map((item) => item.kind)).toEqual([
       "consolidated-knowledge",
       "research-candidate",
+      "reference-item",
       "sensitive-candidate",
       "no-consolidation-candidate"
     ]);
@@ -81,12 +83,57 @@ describe("Proposal Engine contract", () => {
       primaryTopic: "Knowledge Topics"
     });
     expect(plan.items[2]).toMatchObject({
+      learningCapture: "Reference: https://example.com/cli-docs documents command UX patterns.",
+      destinationPath: "Reference Library/Knowledge Topics.md",
+      primaryTopic: "Knowledge Topics"
+    });
+    expect(plan.items[3]).toMatchObject({
       learningCapture: "Secret: production API token was pasted during debugging."
     });
-    expect(plan.items[2]).not.toHaveProperty("destinationPath");
-    expect(plan.items[3]).toMatchObject({
+    expect(plan.items[3]).not.toHaveProperty("destinationPath");
+    expect(plan.items[4]).toMatchObject({
       learningCapture: "TODO: buy coffee after the session."
     });
-    expect(plan.items[3]).not.toHaveProperty("destinationPath");
+    expect(plan.items[4]).not.toHaveProperty("destinationPath");
+  });
+
+  test("adds Valuable Links only when a Related Topic improves retrieval", async () => {
+    const engine = createStubProposalEngine();
+
+    const plan = await engine.propose({
+      schemaVersion: 1,
+      sessionInboxPath: "Onix/Sessions/session-inbox-20260516-120000.md",
+      freeformCapture: [
+        "- TypeScript error messages can point at the caller instead of the broken generic.",
+        "- CLI help output should name each workflow command."
+      ].join("\n"),
+      vaultIndexRef: ".onix/indexes/vault-index.json",
+      vaultIndex: {
+        schemaVersion: 1,
+        generatedAt: "2026-05-16T12:00:00.000Z",
+        notes: [
+          {
+            path: "Knowledge/TypeScript.md",
+            title: "TypeScript",
+            aliases: [],
+            headings: ["TypeScript"],
+            tags: [],
+            summary: "TypeScript language behavior.",
+            outgoingLinks: []
+          }
+        ]
+      },
+      candidateNotes: []
+    });
+
+    expect(plan.items[0]).toMatchObject({
+      relatedTopics: ["Debugging"],
+      proposedContent:
+        "TypeScript error messages can point at the caller instead of the broken generic.\n\nRelated: [[Debugging]]"
+    });
+    expect(plan.items[1]).toMatchObject({
+      relatedTopics: [],
+      proposedContent: "CLI help output should name each workflow command."
+    });
   });
 });

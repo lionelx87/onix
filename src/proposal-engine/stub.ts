@@ -24,6 +24,7 @@ export function createStubProposalEngine(): ProposalEngine {
           const kind = classifyCapture(capture.text);
           const destination = destinationFor(kind, primaryDestination?.path);
           const primaryTopic = primaryTopicFor(kind, primaryDestination);
+          const relatedTopics = relatedTopicsFor(capture.text, primaryTopic);
 
           return {
             id: `item-${index + 1}`,
@@ -31,9 +32,9 @@ export function createStubProposalEngine(): ProposalEngine {
             ...(destination === undefined ? {} : { destinationPath: destination }),
             learningCapture: capture.text,
             ...(primaryTopic === undefined ? {} : { primaryTopic }),
-            relatedTopics: relatedTopicsFor(capture.text, primaryTopic),
+            relatedTopics,
             sourceTrace: `${input.sessionInboxPath} line ${capture.sourceLine}`,
-            proposedContent: proposedContentFor(kind, capture.text)
+            proposedContent: proposedContentFor(kind, capture.text, relatedTopics)
           };
         })
       });
@@ -58,6 +59,10 @@ function classifyCapture(
 ): PatchPlan["items"][number]["kind"] {
   if (/\b(secret|api token|api key|password|credential|private key)\b/i.test(capture)) {
     return "sensitive-candidate";
+  }
+
+  if (/^(reference|reference item)\b/i.test(capture)) {
+    return "reference-item";
   }
 
   if (/^(research|read later|investigate)\b/i.test(capture) || /https?:\/\//i.test(capture)) {
@@ -85,7 +90,15 @@ function destinationFor(kind: PatchPlan["items"][number]["kind"], primaryDestina
     return "Onix/Research Inbox.md";
   }
 
+  if (kind === "reference-item") {
+    return `Reference Library/${primaryDestinationPath === undefined ? "Session Inbox" : titleFromPath(primaryDestinationPath)}.md`;
+  }
+
   return primaryDestinationPath ?? "Knowledge/Session Inbox.md";
+}
+
+function titleFromPath(path: string): string {
+  return path.split("/").at(-1)?.replace(/\.md$/, "") ?? "Session Inbox";
 }
 
 function primaryTopicFor(
@@ -109,13 +122,21 @@ function relatedTopicsFor(capture: string, primaryTopic: string | undefined): st
   return topics.filter((topic) => topic !== primaryTopic);
 }
 
-function proposedContentFor(kind: PatchPlan["items"][number]["kind"], capture: string): string {
+function proposedContentFor(
+  kind: PatchPlan["items"][number]["kind"],
+  capture: string,
+  relatedTopics: string[]
+): string {
   if (kind === "sensitive-candidate") {
     return "Sensitive Candidate requires review and sanitization before consolidation.";
   }
 
   if (kind === "no-consolidation-candidate") {
     return "No Consolidation Candidate: capture is not durable learning as written.";
+  }
+
+  if (kind === "consolidated-knowledge" && relatedTopics.length > 0) {
+    return `${capture}\n\nRelated: ${relatedTopics.map((topic) => `[[${topic}]]`).join(", ")}`;
   }
 
   return capture;

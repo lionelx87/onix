@@ -718,6 +718,47 @@ describe("Apply", () => {
     expect(output).not.toContain("Knowledge/Pending.md");
   });
 
+  test("writes approved Research Candidates and Reference Items outside Consolidated Knowledge", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "onix-vault-"));
+
+    await writeActiveSession(vault);
+    await writeApplyPlan(vault);
+    await writeApprovalState(vault, {
+      planId: "apply-plan",
+      decisions: [
+        {
+          itemId: "research-candidate",
+          action: "approve",
+          destinationPath: "Onix/Research Inbox.md",
+          content: "Research: https://example.com/vector-search for future vault indexing."
+        },
+        {
+          itemId: "reference-item",
+          action: "approve",
+          destinationPath: "Reference Library/CLI.md",
+          content: "Reference: https://example.com/cli-docs documents command UX patterns."
+        },
+        {
+          itemId: "discarded-reference",
+          action: "discard"
+        }
+      ]
+    });
+
+    await createCli().exitOverride().parseAsync(["node", "onix", "--vault", vault, "apply", "apply-plan"]);
+
+    await expect(readFile(join(vault, "Onix", "Research Inbox.md"), "utf8")).resolves.toBe(
+      "## CLI\n\n- Research: https://example.com/vector-search for future vault indexing.\n"
+    );
+    await expect(readFile(join(vault, "Reference Library", "CLI.md"), "utf8")).resolves.toBe(
+      "## CLI\n\n- Reference: https://example.com/cli-docs documents command UX patterns.\n\nInformed learning: [[CLI]]\n"
+    );
+    await expect(readFile(join(vault, "Knowledge", "CLI.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(join(vault, "Reference Library", "Discarded.md"), "utf8")).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+  });
+
   test("rejects destination paths outside the Write Boundary before writing or cleanup", async () => {
     const vault = await mkdtemp(join(tmpdir(), "onix-vault-"));
 
@@ -900,6 +941,36 @@ async function writeApplyPlan(vault: string): Promise<void> {
             learningCapture: "Pending durable learning.",
             sourceTrace: "Onix/Sessions/session-inbox.md line 6",
             proposedContent: "Pending durable learning."
+          },
+          {
+            id: "research-candidate",
+            kind: "research-candidate",
+            destinationPath: "Onix/Research Inbox.md",
+            learningCapture: "Research: https://example.com/vector-search for future vault indexing.",
+            primaryTopic: "CLI",
+            relatedTopics: [],
+            sourceTrace: "Onix/Sessions/session-inbox.md line 7",
+            proposedContent: "Research: https://example.com/vector-search for future vault indexing."
+          },
+          {
+            id: "reference-item",
+            kind: "reference-item",
+            destinationPath: "Reference Library/CLI.md",
+            learningCapture: "Reference: https://example.com/cli-docs documents command UX patterns.",
+            primaryTopic: "CLI",
+            relatedTopics: [],
+            sourceTrace: "Onix/Sessions/session-inbox.md line 8",
+            proposedContent: "Reference: https://example.com/cli-docs documents command UX patterns."
+          },
+          {
+            id: "discarded-reference",
+            kind: "reference-item",
+            destinationPath: "Reference Library/Discarded.md",
+            learningCapture: "Reference: https://example.com/discarded is not useful.",
+            primaryTopic: "Discarded",
+            relatedTopics: [],
+            sourceTrace: "Onix/Sessions/session-inbox.md line 9",
+            proposedContent: "Reference: https://example.com/discarded is not useful."
           }
         ]
       },

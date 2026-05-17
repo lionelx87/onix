@@ -55,29 +55,43 @@ export async function applySession(vaultPath: string, requestedPlanId?: string):
 }
 
 function writeCandidatesFor(plan: PatchPlan, decisions: ApprovalDecision[]): WriteCandidate[] {
-  const planItemIds = new Set(plan.items.map((item) => item.id));
+  const planItemsById = new Map(plan.items.map((item) => [item.id, item]));
   const candidates: WriteCandidate[] = [];
 
   for (const decision of decisions) {
-    if (!planItemIds.has(decision.itemId) || decision.action === "discard") {
+    const item = planItemsById.get(decision.itemId);
+    if (item === undefined || decision.action === "discard") {
       continue;
     }
 
     if (decision.action === "split") {
       for (const part of decision.parts) {
         if (part.destinationPath !== undefined) {
-          candidates.push({ destinationPath: part.destinationPath, content: part.content });
+          candidates.push({ destinationPath: part.destinationPath, content: renderApprovedContent(item, part.content) });
         }
       }
       continue;
     }
 
     if (decision.destinationPath !== undefined) {
-      candidates.push({ destinationPath: decision.destinationPath, content: decision.content });
+      candidates.push({ destinationPath: decision.destinationPath, content: renderApprovedContent(item, decision.content) });
     }
   }
 
   return candidates;
+}
+
+function renderApprovedContent(item: PatchPlan["items"][number], content: string): string {
+  if (item.kind === "research-candidate") {
+    return `## ${item.primaryTopic ?? "Unsorted"}\n\n- ${content.trim()}`;
+  }
+
+  if (item.kind === "reference-item") {
+    const topic = item.primaryTopic ?? "Unsorted";
+    return `## ${topic}\n\n- ${content.trim()}\n\nInformed learning: [[${topic}]]`;
+  }
+
+  return content;
 }
 
 function groupWritesByDestination(candidates: WriteCandidate[]): Map<string, string[]> {
