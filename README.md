@@ -80,9 +80,10 @@ pnpm onix --vault /path/to/vault review stubbed-plan
 
 `--vault` is required. The argument is the Patch Plan identifier stored under `.onix/plans/<plan-id>.json`. The interactive review presents each pending item with progress, destination note, source trace, Learning Capture, and proposed content. Choose actions with the prompted keys: approve, edit, move, split, discard, next, previous, skip, or quit. `next`, `previous`, `skip`, and `quit` do not record a decision, so a review can be resumed later.
 
-Human editing uses your terminal editor. Onix opens `$VISUAL` first, then `$EDITOR`, with the proposed content already written into a temporary Markdown file:
+Human editing uses your terminal editor. Onix resolves it in this order: `$VISUAL` → `$EDITOR` → the editor persisted in the global config (`onix editor <cmd>`). The first time you enter an interactive review without any of these, Onix asks once which editor to use, detects the available candidates on your `PATH` (vim, nvim, nano, code -w, …), and remembers your choice so it never asks again. You can also configure it explicitly:
 
 ```bash
+pnpm onix editor "code -w"     # persist a preferred editor
 VISUAL="code --wait" pnpm onix --vault /path/to/vault review stubbed-plan
 EDITOR=vim pnpm onix --vault /path/to/vault review stubbed-plan
 ```
@@ -182,6 +183,18 @@ pnpm onix use --clear    # removes the default
 ```
 
 When `--vault` is omitted, Onix falls back to this default. The flag always wins when both are present. The path must exist when set; relative paths are resolved to absolute. This still satisfies the PRD rule that the vault must be explicit — the user opts in once with `onix use` instead of relying on the current working directory.
+
+### Set a default editor
+
+Persist the editor used for `edit` and `split` review actions in the same global config file:
+
+```bash
+pnpm onix editor "code -w"   # persist an editor command
+pnpm onix editor             # prints the current editor and its source ($VISUAL, $EDITOR, or global config)
+pnpm onix editor --clear     # removes the stored editor and re-enables the first-run prompt
+```
+
+The first interactive `close`, `review`, or `status → review` after a fresh install (no `$VISUAL`/`$EDITOR` set, no persisted editor) shows a one-time picker with editors detected on your `PATH`. If you skip that picker, Onix remembers the decision and stops asking until you run `onix editor --clear`.
 
 ### Status
 

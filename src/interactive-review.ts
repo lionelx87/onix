@@ -11,6 +11,8 @@ import {
   type ReviewActionInput
 } from "./approval-state.js";
 import { createPalette, type Palette } from "./cli/color.js";
+import { resolveEditor } from "./editor-resolver.js";
+import { readGlobalConfig } from "./global-config.js";
 import type { PatchPlan } from "./proposal-engine/contract.js";
 
 export type InteractiveReviewIo = {
@@ -415,8 +417,8 @@ async function suspendAndEdit(
   initialContent: string,
   extension: string
 ): Promise<string | undefined> {
-  const editor = process.env.VISUAL ?? process.env.EDITOR;
-  if (editor === undefined || editor.trim().length === 0) {
+  const editor = resolveEditor(await readGlobalConfig());
+  if (editor === undefined) {
     return undefined;
   }
 
@@ -880,8 +882,8 @@ function parseSplitTemplate(template: string): string[] {
 }
 
 async function openEditor(initialContent: string, extension: string): Promise<string | undefined> {
-  const editor = process.env.VISUAL ?? process.env.EDITOR;
-  if (editor === undefined || editor.trim().length === 0) {
+  const editor = resolveEditor(await readGlobalConfig());
+  if (editor === undefined) {
     return undefined;
   }
 

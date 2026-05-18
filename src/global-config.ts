@@ -5,6 +5,8 @@ import { dirname, join } from "node:path";
 export type GlobalConfig = {
   schemaVersion: 1;
   defaultVault?: string;
+  editor?: string;
+  editorPromptDeclined?: boolean;
 };
 
 export function globalConfigPath(): string {
@@ -20,7 +22,11 @@ export async function readGlobalConfig(): Promise<GlobalConfig> {
       schemaVersion: 1,
       ...(typeof parsed.defaultVault === "string" && parsed.defaultVault.length > 0
         ? { defaultVault: parsed.defaultVault }
-        : {})
+        : {}),
+      ...(typeof parsed.editor === "string" && parsed.editor.length > 0
+        ? { editor: parsed.editor }
+        : {}),
+      ...(parsed.editorPromptDeclined === true ? { editorPromptDeclined: true } : {})
     };
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") {
@@ -35,6 +41,29 @@ export async function writeGlobalConfig(config: GlobalConfig): Promise<void> {
   const path = globalConfigPath();
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, JSON.stringify(config, null, 2));
+}
+
+export type GlobalConfigPatch = {
+  [K in keyof Omit<GlobalConfig, "schemaVersion">]?: GlobalConfig[K] | undefined;
+};
+
+export async function updateGlobalConfig(patch: GlobalConfigPatch): Promise<GlobalConfig> {
+  const current = await readGlobalConfig();
+  const merged: Record<string, unknown> = { ...current, ...patch };
+  const next: GlobalConfig = { schemaVersion: 1 };
+
+  if (typeof merged.defaultVault === "string" && merged.defaultVault.length > 0) {
+    next.defaultVault = merged.defaultVault;
+  }
+  if (typeof merged.editor === "string" && merged.editor.length > 0) {
+    next.editor = merged.editor;
+  }
+  if (merged.editorPromptDeclined === true) {
+    next.editorPromptDeclined = true;
+  }
+
+  await writeGlobalConfig(next);
+  return next;
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

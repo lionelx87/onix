@@ -4,7 +4,8 @@ import { resolve } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { recordReviewAction, type ReviewActionInput } from "./approval-state.js";
 import { approveClassificationRule } from "./classification-rules.js";
-import { readGlobalConfig, writeGlobalConfig } from "./global-config.js";
+import { readGlobalConfig, updateGlobalConfig } from "./global-config.js";
+import { ensureEditorConfigured, resolveEditor } from "./editor-resolver.js";
 import { runCloseTui } from "./cli/close-tui.js";
 import { runStatusDashboard } from "./cli/status-tui.js";
 import { runInteractiveReview } from "./interactive-review.js";
@@ -42,7 +43,7 @@ export function createCli(io: CliIo = {}): Command {
         }
 
         const previous = config.defaultVault;
-        await writeGlobalConfig({ schemaVersion: 1 });
+        await updateGlobalConfig({ defaultVault: undefined });
         console.log(`Cleared default vault: ${previous}`);
         return;
       }
@@ -65,8 +66,63 @@ export function createCli(io: CliIo = {}): Command {
         return;
       }
 
-      await writeGlobalConfig({ schemaVersion: 1, defaultVault: absolutePath });
+      await updateGlobalConfig({ defaultVault: absolutePath });
       console.log(`Default vault set to: ${absolutePath}`);
+    });
+
+  program
+    .command("editor")
+    .description("set, show, or clear the editor used for edit/split review actions")
+    .argument("[command]", "editor command, e.g. 'vim', 'nano', 'code -w'")
+    .option("--clear", "remove the persisted editor")
+    .action(async (command, editorOptions) => {
+      if (editorOptions.clear === true) {
+        const config = await readGlobalConfig();
+        if (config.editor === undefined && config.editorPromptDeclined !== true) {
+          console.log("No editor preference to clear.");
+          return;
+        }
+
+        const previous = config.editor;
+        await updateGlobalConfig({ editor: undefined, editorPromptDeclined: undefined });
+        if (previous === undefined) {
+          console.log("Cleared editor preference; first-run prompt is re-enabled.");
+        } else {
+          console.log(`Cleared editor: ${previous}`);
+        }
+        return;
+      }
+
+      if (command === undefined) {
+        const config = await readGlobalConfig();
+        const resolved = resolveEditor(config);
+        if (resolved === undefined) {
+          console.log("No editor configured. Run: onix editor <command>");
+          return;
+        }
+
+        const sourceLabel = ((): string => {
+          if (process.env.VISUAL !== undefined && process.env.VISUAL.trim().length > 0) {
+            return "from $VISUAL";
+          }
+          if (process.env.EDITOR !== undefined && process.env.EDITOR.trim().length > 0) {
+            return "from $EDITOR";
+          }
+          return "from global config";
+        })();
+
+        console.log(`Editor: ${resolved} (${sourceLabel})`);
+        return;
+      }
+
+      const trimmed = command.trim();
+      if (trimmed.length === 0) {
+        program.error("Editor command cannot be empty.");
+        return;
+      }
+
+      await updateGlobalConfig({ editor: trimmed, editorPromptDeclined: undefined });
+      console.log(`Editor set to: ${trimmed}`);
     });
 
   program
@@ -98,6 +154,7 @@ export function createCli(io: CliIo = {}): Command {
       const reviewRequested = closeOptions.review !== false;
 
       if (output === process.stdout && process.stdout.isTTY === true && reviewRequested) {
+        await ensureEditorConfigured();
         const tui = await runCloseTui(vaultPath).catch((error: unknown) => {
           if (isNoActiveSessionError(error) || isSessionInboxNotFoundError(error)) {
             program.error(error.message);
@@ -164,6 +221,9 @@ export function createCli(io: CliIo = {}): Command {
         return;
       }
 
+      if (output === process.stdout && process.stdout.isTTY === true) {
+        await ensureEditorConfigured();
+      }
       await runInteractiveReview(vaultPath, planId, { input, output });
     });
 
@@ -194,6 +254,7 @@ export function createCli(io: CliIo = {}): Command {
       if (output === process.stdout && process.stdout.isTTY === true && resolvedVault !== undefined) {
         const selectedPlanId = await runStatusDashboard(report);
         if (selectedPlanId !== undefined) {
+          await ensureEditorConfigured();
           await runInteractiveReview(resolvedVault, selectedPlanId, { input, output });
         }
         return;
