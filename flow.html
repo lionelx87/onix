@@ -1059,6 +1059,19 @@
             <code>--vault</code>. <code>onix use --clear</code> lo elimina.
           </div>
         </div>
+        <div class="rail-card" data-accent="cyan">
+          <h4>onix editor</h4>
+          <div class="rail-cmd">
+            <span class="prompt">$ </span>onix editor "code -w"
+          </div>
+          <div class="rail-desc">
+            Persiste el editor para <em>edit</em> y <em>split</em> en
+            <code>~/.config/onix/config.json</code>. Resolución:
+            <code>$VISUAL</code> → <code>$EDITOR</code> → config. Si no hay
+            ninguno, la primera <em>review</em> interactiva muestra un picker
+            con los editores detectados en <code>$PATH</code>.
+          </div>
+        </div>
         <div class="rail-card" data-accent="emerald">
           <h4>onix status</h4>
           <div class="rail-cmd"><span class="prompt">$ </span>onix status</div>
@@ -1151,8 +1164,10 @@
                 <span class="arg">stubbed-plan</span>
               </div>
               <div class="cmd-desc">
-                Reanuda la Integrated Review. Usa <code>$VISUAL</code> /
-                <code>$EDITOR</code> para <em>edit</em> y <em>split</em>.
+                Reanuda la Integrated Review. Resuelve el editor en este
+                orden: <code>$VISUAL</code> → <code>$EDITOR</code> → editor
+                persistido (<code>onix editor &lt;cmd&gt;</code>). El primer
+                uso sin nada configurado muestra un picker.
               </div>
             </li>
             <li>
@@ -1260,7 +1275,7 @@
         <div class="action-card" data-accent="cyan">
           <span class="key">e</span>
           <h5>Edit</h5>
-          <p>Abre <code>$VISUAL</code>/<code>$EDITOR</code> con el contenido propuesto.</p>
+          <p>Abre el editor resuelto (<code>$VISUAL</code> → <code>$EDITOR</code> → <code>onix editor</code>) con el contenido propuesto.</p>
         </div>
         <div class="action-card" data-accent="violet">
           <span class="key">m</span>
@@ -1295,8 +1310,8 @@
             <tr>
               <td><code>~/.config/onix/config.json</code></td>
               <td><span class="tag user-config">User config</span></td>
-              <td><code>onix use &lt;path&gt;</code></td>
-              <td><code>onix use --clear</code></td>
+              <td><code>onix use &lt;path&gt;</code> · <code>onix editor &lt;cmd&gt;</code> · primer prompt</td>
+              <td><code>onix use --clear</code> · <code>onix editor --clear</code></td>
             </tr>
             <tr>
               <td><code>vault/Onix/Sessions/session-inbox-…md</code></td>
