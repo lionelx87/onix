@@ -40,6 +40,10 @@ _Avoid_: parsed markdown edits, implicit approval
 The component that interprets captures and produces a **Patch Plan** without directly modifying vault files.
 _Avoid_: vault writer, autonomous organizer
 
+**Live Proposal Engine**:
+The production **Proposal Engine** backed by a real LLM provider, used by **Session Closing** when no deterministic engine is injected.
+_Avoid_: stub, mock, autonomous organizer
+
 **Local Validator**:
 The component that checks a **Patch Plan** against the vault, write boundaries, and file state before approved changes are applied.
 _Avoid_: model trust, unchecked output
@@ -71,6 +75,10 @@ _Avoid_: daily note, permanent inbox
 **Capture Interpretation**:
 The process of extracting one or more atomic **Learning Captures** from a **Freeform Capture** during session closing.
 _Avoid_: manual splitting, raw import
+
+**Capture Interpretation Prompt**:
+The instruction sent to the **Live Proposal Engine** provider that uses the domain language to produce a valid **Patch Plan**.
+_Avoid_: raw prompt, system message
 
 **Integrated Review**:
 A single review flow that combines interpreted **Learning Captures**, proposed destinations, and source traces.
