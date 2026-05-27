@@ -12,6 +12,7 @@ import { runInteractiveReview } from "./interactive-review.js";
 import { renderIntegratedReview } from "./integrated-review.js";
 import { applySession } from "./session-apply.js";
 import { closeSession, NoActiveSessionError, SessionInboxNotFoundError } from "./session-close.js";
+import { DEFAULT_MODEL, MissingLlmCredentialsError } from "./proposal-engine/factory.js";
 import { ActiveSessionAlreadyExistsError, startSession } from "./session-start.js";
 import { buildStatusReport, renderStatusReport } from "./status.js";
 
@@ -126,6 +127,51 @@ export function createCli(io: CliIo = {}): Command {
     });
 
   program
+    .command("model")
+    .description("set, show, or clear the LLM model used by the live Proposal Engine")
+    .argument("[id]", "model id, e.g. 'gpt-5.5', 'gpt-5.4'")
+    .option("--clear", "remove the persisted model preference")
+    .action(async (id, modelOptions) => {
+      if (modelOptions.clear === true) {
+        const config = await readGlobalConfig();
+        if (config.model === undefined) {
+          console.log("No model preference to clear.");
+          return;
+        }
+
+        const previous = config.model;
+        await updateGlobalConfig({ model: undefined });
+        console.log(`Cleared model: ${previous}`);
+        return;
+      }
+
+      if (id === undefined) {
+        const config = await readGlobalConfig();
+        const fromEnv = process.env.ONIX_MODEL?.trim();
+        if (fromEnv !== undefined && fromEnv.length > 0) {
+          console.log(`Model: ${fromEnv} (from $ONIX_MODEL)`);
+          return;
+        }
+        if (config.model !== undefined) {
+          console.log(`Model: ${config.model} (from global config)`);
+          return;
+        }
+
+        console.log(`Model: ${DEFAULT_MODEL} (default)`);
+        return;
+      }
+
+      const trimmed = id.trim();
+      if (trimmed.length === 0) {
+        program.error("Model id cannot be empty.");
+        return;
+      }
+
+      await updateGlobalConfig({ model: trimmed });
+      console.log(`Model set to: ${trimmed}`);
+    });
+
+  program
     .command("start")
     .description("start an Ephemeral Session and create a dated Session Inbox")
     .action(async () => {
@@ -156,7 +202,7 @@ export function createCli(io: CliIo = {}): Command {
       if (output === process.stdout && process.stdout.isTTY === true && reviewRequested) {
         await ensureEditorConfigured();
         const tui = await runCloseTui(vaultPath).catch((error: unknown) => {
-          if (isNoActiveSessionError(error) || isSessionInboxNotFoundError(error)) {
+          if (isNoActiveSessionError(error) || isSessionInboxNotFoundError(error) || isMissingLlmCredentialsError(error)) {
             program.error(error.message);
           }
 
@@ -170,7 +216,7 @@ export function createCli(io: CliIo = {}): Command {
       }
 
       const { plan, reviewRendering } = await closeSession(vaultPath).catch((error: unknown) => {
-        if (isNoActiveSessionError(error) || isSessionInboxNotFoundError(error)) {
+        if (isNoActiveSessionError(error) || isSessionInboxNotFoundError(error) || isMissingLlmCredentialsError(error)) {
           program.error(error.message);
         }
 
@@ -342,6 +388,14 @@ function isActiveSessionAlreadyExistsError(error: unknown): error is ActiveSessi
     (error instanceof Error &&
       (error.name === "ActiveSessionAlreadyExistsError" ||
         error.message.startsWith("An Ephemeral Session is already active:")))
+  );
+}
+
+function isMissingLlmCredentialsError(error: unknown): error is MissingLlmCredentialsError {
+  return (
+    error instanceof MissingLlmCredentialsError ||
+    (error instanceof Error &&
+      (error.name === "MissingLlmCredentialsError" || error.message.startsWith("Missing OpenAI credentials.")))
   );
 }
 

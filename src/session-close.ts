@@ -3,7 +3,7 @@ import { join, posix } from "node:path";
 import { readClassificationRules } from "./classification-rules.js";
 import { storeLayout } from "./operational-store/layout.js";
 import type { PatchPlan, ProposalEngine } from "./proposal-engine/contract.js";
-import { createStubProposalEngine } from "./proposal-engine/stub.js";
+import { resolveProposalEngine } from "./proposal-engine/factory.js";
 import { renderReview } from "./review-rendering.js";
 import type { ActiveSession } from "./session-start.js";
 import { buildVaultIndex, selectCandidateNotes } from "./vault-index.js";
@@ -46,7 +46,7 @@ export async function closeSession(
   options: ProposalEngine | CloseSessionOptions = {}
 ): Promise<CloseSessionResult> {
   const normalized = isProposalEngine(options) ? { proposalEngine: options } : options;
-  const proposalEngine = normalized.proposalEngine ?? createStubProposalEngine();
+  const proposalEngine = normalized.proposalEngine ?? (await resolveProposalEngine());
   const onStage = normalized.onStage;
   const layout = storeLayout(".onix");
   const activeSession = await readActiveSession(vaultPath);

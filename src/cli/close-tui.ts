@@ -7,7 +7,7 @@ export type CloseTuiResult = CloseSessionResult & { shouldEnterReview: boolean }
 export async function runCloseTui(vaultPath: string): Promise<CloseTuiResult> {
   intro("Closing Active Session");
 
-  const spin = spinner();
+  const spin = spinner({ indicator: "timer" });
   spin.start("Updating Vault Index…");
 
   const result = await closeSession(vaultPath, {

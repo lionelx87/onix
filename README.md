@@ -47,7 +47,7 @@ pnpm onix --vault /path/to/vault close
 
 `--vault` is required. `close` reads the Active Session, finds the Session Inbox even if the visible note was renamed, strips the session frontmatter, updates the Vault Index, selects Candidate Notes, and sends that input to the Proposal Engine. After generating the Patch Plan, `close` starts an interactive Integrated Review by default.
 
-The current Proposal Engine is deterministic and provider-independent. It writes a structured Patch Plan, prints a Markdown Review Rendering, and then prompts for Review Actions in the terminal:
+By default `close` uses the live LLM-backed Proposal Engine (OpenAI). It requires `OPENAI_API_KEY` in the environment; if the variable is missing, `close` fails with a hint and leaves the Session Inbox and Active Session untouched. While the model runs, an interactive `close` shows a spinner with elapsed seconds. The provider response is validated against the Patch Plan schema and retried up to twice before aborting. See [Configure the live Proposal Engine](#configure-the-live-proposal-engine) below. The deterministic stub engine is still provider-independent and remains the engine used by every test; you can force it from the terminal with `ONIX_PROPOSAL_ENGINE=stub`. It writes a structured Patch Plan, prints a Markdown Review Rendering, and then prompts for Review Actions in the terminal:
 
 ```text
 /path/to/vault/.onix/indexes/vault-index.json
@@ -195,6 +195,30 @@ pnpm onix editor --clear     # removes the stored editor and re-enables the firs
 ```
 
 The first interactive `close`, `review`, or `status → review` after a fresh install (no `$VISUAL`/`$EDITOR` set, no persisted editor) shows a one-time picker with editors detected on your `PATH`. If you skip that picker, Onix remembers the decision and stops asking until you run `onix editor --clear`.
+
+### Configure the live Proposal Engine
+
+`close` uses an OpenAI-backed Proposal Engine by default. Configuration follows the decisions recorded in [`docs/adr/0002-live-proposal-engine.md`](docs/adr/0002-live-proposal-engine.md).
+
+- **Credentials** come from the environment only, under `OPENAI_API_KEY`. The key is never written to the global config. If it is missing, `close` fails with a hint and changes nothing.
+
+  ```bash
+  export OPENAI_API_KEY=sk-...
+  ```
+
+- **Model** defaults to `gpt-5.5`. Override it per run with the `ONIX_MODEL` environment variable, or persist a preference with the `onix model` command. Resolution order: `ONIX_MODEL` → persisted model → default.
+
+  ```bash
+  pnpm onix model gpt-5.4     # persist a preferred model
+  pnpm onix model             # prints the resolved model and its source ($ONIX_MODEL, global config, or default)
+  pnpm onix model --clear     # removes the stored model
+  ```
+
+- **Force the deterministic stub** (no credentials or network) from the terminal with `ONIX_PROPOSAL_ENGINE=stub`. Tests always run with this seam, so they never reach a live LLM.
+
+  ```bash
+  ONIX_PROPOSAL_ENGINE=stub pnpm onix --vault /path/to/vault close
+  ```
 
 ### Status
 

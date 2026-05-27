@@ -7,6 +7,7 @@ export type GlobalConfig = {
   defaultVault?: string;
   editor?: string;
   editorPromptDeclined?: boolean;
+  model?: string;
 };
 
 export function globalConfigPath(): string {
@@ -26,7 +27,8 @@ export async function readGlobalConfig(): Promise<GlobalConfig> {
       ...(typeof parsed.editor === "string" && parsed.editor.length > 0
         ? { editor: parsed.editor }
         : {}),
-      ...(parsed.editorPromptDeclined === true ? { editorPromptDeclined: true } : {})
+      ...(parsed.editorPromptDeclined === true ? { editorPromptDeclined: true } : {}),
+      ...(typeof parsed.model === "string" && parsed.model.length > 0 ? { model: parsed.model } : {})
     };
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") {
@@ -60,6 +62,9 @@ export async function updateGlobalConfig(patch: GlobalConfigPatch): Promise<Glob
   }
   if (merged.editorPromptDeclined === true) {
     next.editorPromptDeclined = true;
+  }
+  if (typeof merged.model === "string" && merged.model.length > 0) {
+    next.model = merged.model;
   }
 
   await writeGlobalConfig(next);
