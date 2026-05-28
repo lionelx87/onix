@@ -197,6 +197,54 @@ describe("Live Proposal Engine", () => {
     expect(plan.items).toHaveLength(1);
   });
 
+  function refinementPlan(existingContent: string): string {
+    return JSON.stringify({
+      schemaVersion: 1,
+      planId: "live-plan-ref",
+      summary: "Refinement proposal.",
+      items: [
+        {
+          id: "item-1",
+          kind: "knowledge-refinement",
+          destinationPath: "Knowledge/Knowledge Topics.md",
+          learningCapture: "Stable subjects also anchor Related Topics.",
+          primaryTopic: "Knowledge Topics",
+          relatedTopics: [],
+          sourceTrace: "Onix/Sessions/session-inbox-20260527-120000.md line 1",
+          proposedContent: "Stable subjects used to recover Consolidated Knowledge and to anchor Related Topics.",
+          existingContent,
+          refinementReason: "Adds the Related Topics anchor."
+        }
+      ]
+    });
+  }
+
+  test("demotes a knowledge-refinement to consolidated-knowledge when existingContent is not in the destination note", async () => {
+    const engine = createLiveProposalEngine({
+      client: clientReturning(refinementPlan("A paragraph that does not exist in the note.")),
+      model: "gemini-2.5-flash"
+    });
+
+    const plan = await engine.propose(baseInput());
+
+    expect(plan.items[0]?.kind).toBe("consolidated-knowledge");
+    expect(plan.items[0]).not.toHaveProperty("existingContent");
+    expect(plan.items[0]).not.toHaveProperty("refinementReason");
+    expect(plan.items[0]?.destinationPath).toBe("Knowledge/Knowledge Topics.md");
+  });
+
+  test("keeps a knowledge-refinement when existingContent is a verbatim paragraph of the destination note", async () => {
+    const engine = createLiveProposalEngine({
+      client: clientReturning(refinementPlan("Stable subjects used to recover Consolidated Knowledge.")),
+      model: "gemini-2.5-flash"
+    });
+
+    const plan = await engine.propose(baseInput());
+
+    expect(plan.items[0]?.kind).toBe("knowledge-refinement");
+    expect(plan.items[0]?.existingContent).toBe("Stable subjects used to recover Consolidated Knowledge.");
+  });
+
   test("builds a Capture Interpretation Prompt using the domain language and the input", async () => {
     let captured: { systemPrompt: string; userPrompt: string } | undefined;
     const client: CaptureCompletionClient = {

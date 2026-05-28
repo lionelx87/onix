@@ -36,7 +36,8 @@ export function createLiveProposalEngine(options: LiveProposalEngineOptions): Pr
 
         try {
           const plan = parsePatchPlan(assemblePatchPlanEnvelope(parseJsonResponse(response)));
-          return applyClassificationRules(plan, input.classificationRules);
+          const ruled = applyClassificationRules(plan, input.classificationRules);
+          return demoteUnverifiableRefinements(ruled, input.candidateNotes);
         } catch (error) {
           lastError = error instanceof Error ? error : new Error(String(error));
           userPrompt = `${basePrompt}\n\nYour previous response was rejected: ${lastError.message}\nReturn only valid JSON for the Patch Plan.`;
@@ -47,6 +48,31 @@ export function createLiveProposalEngine(options: LiveProposalEngineOptions): Pr
         `Live Proposal Engine could not produce a valid Patch Plan after ${maxRetries + 1} attempts: ${lastError?.message ?? "unknown error"}`
       );
     }
+  };
+}
+
+function demoteUnverifiableRefinements(
+  plan: PatchPlan,
+  candidateNotes: ProposalEngineInput["candidateNotes"]
+): PatchPlan {
+  const contentByPath = new Map(candidateNotes.map((note) => [note.path, note.content]));
+
+  return {
+    ...plan,
+    items: plan.items.map((item) => {
+      if (item.kind !== "knowledge-refinement") {
+        return item;
+      }
+
+      const target = item.existingContent?.trim();
+      const noteContent = item.destinationPath === undefined ? undefined : contentByPath.get(item.destinationPath);
+      if (target !== undefined && target.length > 0 && noteContent !== undefined && noteContent.includes(target)) {
+        return item;
+      }
+
+      const { existingContent: _existingContent, refinementReason: _refinementReason, ...rest } = item;
+      return { ...rest, kind: "consolidated-knowledge" };
+    })
   };
 }
 
@@ -112,7 +138,7 @@ function buildSystemPrompt(): string {
     "",
     "Classify each Learning Capture into exactly one kind:",
     "- consolidated-knowledge: Consolidated Knowledge to store under a Knowledge Topic.",
-    "- knowledge-refinement: a Knowledge Refinement that strengthens an existing paragraph in a Candidate Note instead of duplicating it.",
+    "- knowledge-refinement: a Knowledge Refinement that strengthens an existing paragraph in a Candidate Note instead of duplicating it. Only use this kind when the paragraph truly exists in a provided Candidate Note, and set existingContent to that paragraph copied verbatim, character for character. Otherwise use consolidated-knowledge.",
     "- research-candidate: a Research Candidate, a link or reference worth investigating later.",
     "- reference-item: a Reference Item, a link or reference that stays useful to access after producing learning.",
     "- no-consolidation-candidate: a No Consolidation Candidate, not durable learning as written (e.g. reminders, pure duplicates).",
