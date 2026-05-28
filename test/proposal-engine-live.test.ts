@@ -158,6 +158,45 @@ describe("Live Proposal Engine", () => {
     expect(plan.items[0]?.destinationPath).toBe("Knowledge/Docker.md");
   });
 
+  const itemFixture = {
+    id: "item-1",
+    kind: "consolidated-knowledge",
+    destinationPath: "Knowledge/Knowledge Topics.md",
+    learningCapture: "Primary Topics answer the durable question.",
+    primaryTopic: "Knowledge Topics",
+    relatedTopics: [],
+    sourceTrace: "Onix/Sessions/session-inbox-20260527-120000.md line 1",
+    proposedContent: "Primary Topics answer the durable question."
+  };
+
+  test("assembles the Patch Plan envelope when the provider returns a top-level array of items", async () => {
+    const engine = createLiveProposalEngine({
+      client: clientReturning(JSON.stringify([itemFixture])),
+      model: "gemini-2.5-flash"
+    });
+
+    const plan = await engine.propose(baseInput());
+
+    expect(plan.schemaVersion).toBe(1);
+    expect(plan.planId.length).toBeGreaterThan(0);
+    expect(plan.items).toHaveLength(1);
+    expect(plan.items[0]?.kind).toBe("consolidated-knowledge");
+  });
+
+  test("fills the engine-owned envelope when the provider omits schemaVersion and planId", async () => {
+    const engine = createLiveProposalEngine({
+      client: clientReturning(JSON.stringify({ summary: "From provider", items: [itemFixture] })),
+      model: "gemini-2.5-flash"
+    });
+
+    const plan = await engine.propose(baseInput());
+
+    expect(plan.schemaVersion).toBe(1);
+    expect(plan.planId.length).toBeGreaterThan(0);
+    expect(plan.summary).toBe("From provider");
+    expect(plan.items).toHaveLength(1);
+  });
+
   test("builds a Capture Interpretation Prompt using the domain language and the input", async () => {
     let captured: { systemPrompt: string; userPrompt: string } | undefined;
     const client: CaptureCompletionClient = {

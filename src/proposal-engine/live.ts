@@ -35,7 +35,7 @@ export function createLiveProposalEngine(options: LiveProposalEngineOptions): Pr
         });
 
         try {
-          const plan = parsePatchPlan(parseJsonResponse(response));
+          const plan = parsePatchPlan(assemblePatchPlanEnvelope(parseJsonResponse(response)));
           return applyClassificationRules(plan, input.classificationRules);
         } catch (error) {
           lastError = error instanceof Error ? error : new Error(String(error));
@@ -82,6 +82,20 @@ function matchClassificationRule(
   return undefined;
 }
 
+function assemblePatchPlanEnvelope(parsed: unknown): unknown {
+  const source = Array.isArray(parsed) ? { items: parsed } : parsed;
+  if (typeof source !== "object" || source === null) {
+    return parsed;
+  }
+
+  const record = source as Record<string, unknown>;
+  const planId =
+    typeof record.planId === "string" && record.planId.trim().length > 0 ? record.planId : "live-plan";
+  const summary = typeof record.summary === "string" ? record.summary : "";
+
+  return { ...record, schemaVersion: 1, planId, summary };
+}
+
 function parseJsonResponse(response: string): unknown {
   try {
     return JSON.parse(response);
@@ -108,7 +122,13 @@ function buildSystemPrompt(): string {
     "and Related Topics to secondary Knowledge Topics that improve discovery without duplicating content.",
     "Consult the Vault Index before proposing destinations; prefer existing Knowledge Topics over inventing new ones.",
     "Each item must include a sourceTrace pointing back to the Session Inbox line it came from.",
-    "Return only JSON that conforms to the Patch Plan schema, with no prose or code fences."
+    "",
+    "Return only a single JSON object (never a top-level array) with this exact shape:",
+    '{ "summary": string, "items": [ { "id": string, "kind": one of the kinds above,',
+    '  "destinationPath"?: string, "learningCapture": string, "primaryTopic"?: string,',
+    '  "relatedTopics": string[], "sourceTrace": string, "proposedContent": string,',
+    '  "existingContent"?: string, "refinementReason"?: string } ] }',
+    "Output JSON only, with no prose or code fences."
   ].join("\n");
 }
 
