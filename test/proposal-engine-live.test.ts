@@ -216,4 +216,21 @@ describe("Live Proposal Engine", () => {
     expect(captured?.userPrompt).toContain("Primary Topics answer the durable question.");
     expect(captured?.userPrompt).toContain("Knowledge/Knowledge Topics.md");
   });
+
+  test("instructs the model to write Consolidated Knowledge in the Destination Language", async () => {
+    let captured: { systemPrompt: string } | undefined;
+    const client: CaptureCompletionClient = {
+      async complete(request) {
+        captured = { systemPrompt: request.systemPrompt };
+        return validPlan;
+      }
+    };
+
+    const engine = createLiveProposalEngine({ client, model: "gemini-2.5-flash" });
+    await engine.propose(baseInput());
+
+    expect(captured?.systemPrompt).toContain("Destination Language");
+    expect(captured?.systemPrompt).toContain("Learning Capture");
+    expect(captured?.systemPrompt.toLowerCase()).toContain("technical");
+  });
 });
