@@ -37,6 +37,8 @@ This creates:
 
 The Session Inbox is plain Markdown with minimal `onix_session_id` frontmatter, so closing can still find it if the visible note is renamed in Obsidian. It lives in a visible vault folder so you can open it from Obsidian and write Freeform Captures directly into that file during the session. The Active Session metadata stays hidden under `.onix/state/`.
 
+`start` also scaffolds a `.onix/.gitignore` the first time it creates the Operational Store, so the transient subdirectories (`state/`, `indexes/`, `plans/`, `approvals/`, `logs/`, `cache/`) stay out of the vault's Versioning Review while `.onix/config.json` and `.onix/classification-rules.json` remain trackable. Scaffolding is idempotent: an existing `.onix/.gitignore` is left untouched so user customizations are preserved.
+
 Only one Active Session can exist at a time. Running `start` again for the same vault fails until the current session is closed.
 
 ### Close an Active Session
