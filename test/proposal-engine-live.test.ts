@@ -281,4 +281,57 @@ describe("Live Proposal Engine", () => {
     expect(captured?.systemPrompt).toContain("Learning Capture");
     expect(captured?.systemPrompt.toLowerCase()).toContain("technical");
   });
+
+  test("instructs the model to give Consolidated Knowledge a descriptive heading when it introduces a distinct subject", async () => {
+    let captured: { systemPrompt: string } | undefined;
+    const client: CaptureCompletionClient = {
+      async complete(request) {
+        captured = { systemPrompt: request.systemPrompt };
+        return validPlan;
+      }
+    };
+
+    const engine = createLiveProposalEngine({ client, model: "gemini-2.5-flash" });
+    await engine.propose(baseInput());
+
+    const prompt = captured?.systemPrompt.toLowerCase() ?? "";
+    expect(prompt).toContain("heading");
+    expect(prompt).toContain("distinct subject");
+    expect(prompt).toContain("existing heading");
+  });
+
+  test("instructs the model to format snippets as fenced code blocks and identifiers as inline code", async () => {
+    let captured: { systemPrompt: string } | undefined;
+    const client: CaptureCompletionClient = {
+      async complete(request) {
+        captured = { systemPrompt: request.systemPrompt };
+        return validPlan;
+      }
+    };
+
+    const engine = createLiveProposalEngine({ client, model: "gemini-2.5-flash" });
+    await engine.propose(baseInput());
+
+    const prompt = captured?.systemPrompt.toLowerCase() ?? "";
+    expect(prompt).toContain("fenced code block");
+    expect(prompt).toContain("inline code");
+    expect(prompt).toContain("instead of bold");
+  });
+
+  test("allows a Knowledge Refinement to restructure while keeping existingContent verbatim", async () => {
+    let captured: { systemPrompt: string } | undefined;
+    const client: CaptureCompletionClient = {
+      async complete(request) {
+        captured = { systemPrompt: request.systemPrompt };
+        return validPlan;
+      }
+    };
+
+    const engine = createLiveProposalEngine({ client, model: "gemini-2.5-flash" });
+    await engine.propose(baseInput());
+
+    const prompt = captured?.systemPrompt.toLowerCase() ?? "";
+    expect(prompt).toContain("knowledge refinement may");
+    expect(prompt).toContain("verbatim");
+  });
 });
