@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { join, posix } from "node:path";
+import { ensureOperationalStoreGitignore } from "./operational-store/gitignore.js";
 import { storeLayout } from "./operational-store/layout.js";
 
 const visibleSessionInboxDirectory = posix.join("Onix", "Sessions");
@@ -43,6 +44,7 @@ export async function startSession(vaultPath: string, now = new Date()): Promise
 
   await mkdir(join(vaultPath, visibleSessionInboxDirectory), { recursive: true });
   await mkdir(join(vaultPath, ".onix", "state"), { recursive: true });
+  await ensureOperationalStoreGitignore(vaultPath);
   await writeFile(join(vaultPath, inboxPath), renderSessionInbox(activeSession), { flag: "wx" });
   await writeFile(join(vaultPath, layout.transient.activeSession), JSON.stringify(activeSession, null, 2), {
     flag: "wx"
