@@ -124,20 +124,10 @@ function validateDestinationPath(destinationPath: string): void {
     destinationPath.startsWith("../") ||
     destinationPath.includes("/../") ||
     destinationPath === ".onix" ||
-    destinationPath.startsWith(".onix/") ||
-    !isInsideWriteBoundary(destinationPath)
+    destinationPath.startsWith(".onix/")
   ) {
     throw new Error(`Destination is outside the Write Boundary: ${destinationPath}`);
   }
-}
-
-function isInsideWriteBoundary(destinationPath: string): boolean {
-  return (
-    destinationPath.startsWith("Knowledge/") ||
-    destinationPath === "Onix/Research Inbox.md" ||
-    destinationPath.startsWith("References/") ||
-    destinationPath.startsWith("Reference Library/")
-  );
 }
 
 async function validateDestinationIsFresh(
