@@ -198,21 +198,35 @@ The first interactive `close`, `review`, or `status → review` after a fresh in
 
 ### Configure the live Proposal Engine
 
-`close` uses an OpenAI-backed Proposal Engine by default. Configuration follows the decisions recorded in [`docs/adr/0002-live-proposal-engine.md`](docs/adr/0002-live-proposal-engine.md).
+`close` uses a live LLM-backed Proposal Engine. It supports two providers behind the same engine, with **Gemini as the default**. Configuration follows [`docs/adr/0002-live-proposal-engine.md`](docs/adr/0002-live-proposal-engine.md) and [`docs/adr/0003-multi-provider-gemini-default.md`](docs/adr/0003-multi-provider-gemini-default.md).
 
-- **Credentials** come from the environment only, under `OPENAI_API_KEY`. The key is never written to the global config. If it is missing, `close` fails with a hint and changes nothing.
+- **Provider** resolves as `ONIX_PROVIDER` → persisted provider → default `gemini`. Valid names are `gemini` and `openai`.
 
   ```bash
+  pnpm onix provider openai    # persist a preferred provider
+  pnpm onix provider           # prints the resolved provider and its source ($ONIX_PROVIDER, global config, or default)
+  pnpm onix provider --clear   # removes the stored provider
+  ```
+
+- **Credentials** come from the environment only, per provider — `GEMINI_API_KEY` for `gemini`, `OPENAI_API_KEY` for `openai`. The key is never written to the global config. If the selected provider's key is missing, `close` fails with a provider-specific hint and changes nothing.
+
+  ```bash
+  export GEMINI_API_KEY=...    # free key from https://aistudio.google.com
+  # or, when using the openai provider:
   export OPENAI_API_KEY=sk-...
   ```
 
-- **Model** defaults to `gpt-5.5`. Override it per run with the `ONIX_MODEL` environment variable, or persist a preference with the `onix model` command. Resolution order: `ONIX_MODEL` → persisted model → default.
+- **Model** defaults per provider (`gemini` → `gemini-2.5-flash`, `openai` → `gpt-5.5`). Override per run with `ONIX_MODEL`, or persist with `onix model`. Resolution order: `ONIX_MODEL` → persisted model → provider default.
 
   ```bash
-  pnpm onix model gpt-5.4     # persist a preferred model
-  pnpm onix model             # prints the resolved model and its source ($ONIX_MODEL, global config, or default)
-  pnpm onix model --clear     # removes the stored model
+  pnpm onix model gemini-2.5-pro   # persist a preferred model
+  pnpm onix model                  # prints the resolved model and its source
+  pnpm onix model --clear          # removes the stored model
   ```
+
+  Note: `model` is a single shared value. When you switch providers, clear it with `onix model --clear` so each provider falls back to its own default.
+
+- **Gemini free-tier privacy**: the Gemini free tier may use your inputs and outputs to improve Google's models, and the whole capture is sent to the provider. The first time you use Gemini, `onix` prints a one-time warning. Do not capture secrets or other Sensitive Candidates under the free tier; use a paid tier or Vertex AI if you need privacy.
 
 - **Force the deterministic stub** (no credentials or network) from the terminal with `ONIX_PROPOSAL_ENGINE=stub`. Tests always run with this seam, so they never reach a live LLM.
 

@@ -23,6 +23,7 @@
   "dependencies": {
     "@clack/prompts": "^1.4.0",
     "@commander-js/extra-typings": "^14.0.0",
+    "@google/genai": "^2.6.0",
     "blessed": "^0.1.81",
     "commander": "^14.0.0",
     "openai": "^6.39.0",

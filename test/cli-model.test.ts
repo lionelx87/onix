@@ -50,7 +50,7 @@ describe("onix model", () => {
     expect(stdout.join("\n")).toContain("Model: gpt-5.4 (from global config)");
   });
 
-  test("reports the default model when nothing is configured", async () => {
+  test("reports the default model for the resolved provider when nothing is configured", async () => {
     const stdout: string[] = [];
     const consoleLog = vi.spyOn(console, "log").mockImplementation((value: string) => stdout.push(value));
 
@@ -60,7 +60,7 @@ describe("onix model", () => {
       consoleLog.mockRestore();
     }
 
-    expect(stdout.join("\n")).toContain("Model: gpt-5.5 (default)");
+    expect(stdout.join("\n")).toContain("Model: gemini-2.5-flash (default for gemini)");
   });
 
   test("reports the env-sourced model when ONIX_MODEL is set", async () => {

@@ -5,17 +5,23 @@ import { join } from "node:path";
 import { createCli } from "../src/cli.js";
 
 describe("Session Closing without LLM credentials", () => {
-  let originalApiKey: string | undefined;
+  let originalOpenAiKey: string | undefined;
+  let originalGeminiKey: string | undefined;
 
   beforeEach(() => {
-    originalApiKey = process.env.OPENAI_API_KEY;
+    originalOpenAiKey = process.env.OPENAI_API_KEY;
+    originalGeminiKey = process.env.GEMINI_API_KEY;
     delete process.env.OPENAI_API_KEY;
+    delete process.env.GEMINI_API_KEY;
     delete process.env.ONIX_PROPOSAL_ENGINE;
+    delete process.env.ONIX_PROVIDER;
   });
 
   afterEach(() => {
-    if (originalApiKey === undefined) delete process.env.OPENAI_API_KEY;
-    else process.env.OPENAI_API_KEY = originalApiKey;
+    if (originalOpenAiKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = originalOpenAiKey;
+    if (originalGeminiKey === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = originalGeminiKey;
   });
 
   test("fails with a clear hint and leaves the session state untouched", async () => {
@@ -38,7 +44,7 @@ describe("Session Closing without LLM credentials", () => {
           .parseAsync(["node", "onix", "--vault", vault, "close", "--no-review"])
       ).rejects.toThrow();
 
-      expect(stderr.join("")).toContain("OPENAI_API_KEY");
+      expect(stderr.join("")).toContain("GEMINI_API_KEY");
 
       expect(await readFile(inboxPath, "utf8")).toBe(inboxBefore);
       const activeSession = await stat(join(vault, ".onix", "state", "active-session.json"));

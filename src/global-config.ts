@@ -8,6 +8,8 @@ export type GlobalConfig = {
   editor?: string;
   editorPromptDeclined?: boolean;
   model?: string;
+  provider?: string;
+  geminiPrivacyNoticeShown?: boolean;
 };
 
 export function globalConfigPath(): string {
@@ -28,7 +30,9 @@ export async function readGlobalConfig(): Promise<GlobalConfig> {
         ? { editor: parsed.editor }
         : {}),
       ...(parsed.editorPromptDeclined === true ? { editorPromptDeclined: true } : {}),
-      ...(typeof parsed.model === "string" && parsed.model.length > 0 ? { model: parsed.model } : {})
+      ...(typeof parsed.model === "string" && parsed.model.length > 0 ? { model: parsed.model } : {}),
+      ...(typeof parsed.provider === "string" && parsed.provider.length > 0 ? { provider: parsed.provider } : {}),
+      ...(parsed.geminiPrivacyNoticeShown === true ? { geminiPrivacyNoticeShown: true } : {})
     };
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") {
@@ -65,6 +69,12 @@ export async function updateGlobalConfig(patch: GlobalConfigPatch): Promise<Glob
   }
   if (typeof merged.model === "string" && merged.model.length > 0) {
     next.model = merged.model;
+  }
+  if (typeof merged.provider === "string" && merged.provider.length > 0) {
+    next.provider = merged.provider;
+  }
+  if (merged.geminiPrivacyNoticeShown === true) {
+    next.geminiPrivacyNoticeShown = true;
   }
 
   await writeGlobalConfig(next);

@@ -12,7 +12,12 @@ import { runInteractiveReview } from "./interactive-review.js";
 import { renderIntegratedReview } from "./integrated-review.js";
 import { applySession } from "./session-apply.js";
 import { closeSession, NoActiveSessionError, SessionInboxNotFoundError } from "./session-close.js";
-import { DEFAULT_MODEL, MissingLlmCredentialsError } from "./proposal-engine/factory.js";
+import {
+  DEFAULT_PROVIDER,
+  MissingLlmCredentialsError,
+  PROVIDER_DEFAULTS,
+  resolveProvider
+} from "./proposal-engine/factory.js";
 import { ActiveSessionAlreadyExistsError, startSession } from "./session-start.js";
 import { buildStatusReport, renderStatusReport } from "./status.js";
 
@@ -127,6 +132,51 @@ export function createCli(io: CliIo = {}): Command {
     });
 
   program
+    .command("provider")
+    .description("set, show, or clear the LLM provider used by the live Proposal Engine")
+    .argument("[name]", "provider name: 'gemini' or 'openai'")
+    .option("--clear", "remove the persisted provider preference")
+    .action(async (name, providerOptions) => {
+      if (providerOptions.clear === true) {
+        const config = await readGlobalConfig();
+        if (config.provider === undefined) {
+          console.log("No provider preference to clear.");
+          return;
+        }
+
+        const previous = config.provider;
+        await updateGlobalConfig({ provider: undefined });
+        console.log(`Cleared provider: ${previous}`);
+        return;
+      }
+
+      if (name === undefined) {
+        const config = await readGlobalConfig();
+        const fromEnv = process.env.ONIX_PROVIDER?.trim();
+        if (fromEnv !== undefined && fromEnv.length > 0) {
+          console.log(`Provider: ${fromEnv} (from $ONIX_PROVIDER)`);
+          return;
+        }
+        if (config.provider !== undefined) {
+          console.log(`Provider: ${config.provider} (from global config)`);
+          return;
+        }
+
+        console.log(`Provider: ${DEFAULT_PROVIDER} (default)`);
+        return;
+      }
+
+      const trimmed = name.trim();
+      if (!isProviderName(trimmed)) {
+        program.error("Unknown provider. Use one of: gemini, openai");
+        return;
+      }
+
+      await updateGlobalConfig({ provider: trimmed });
+      console.log(`Provider set to: ${trimmed}`);
+    });
+
+  program
     .command("model")
     .description("set, show, or clear the LLM model used by the live Proposal Engine")
     .argument("[id]", "model id, e.g. 'gpt-5.5', 'gpt-5.4'")
@@ -157,7 +207,8 @@ export function createCli(io: CliIo = {}): Command {
           return;
         }
 
-        console.log(`Model: ${DEFAULT_MODEL} (default)`);
+        const provider = resolveProvider(config);
+        console.log(`Model: ${PROVIDER_DEFAULTS[provider].model} (default for ${provider})`);
         return;
       }
 
@@ -389,6 +440,10 @@ function isActiveSessionAlreadyExistsError(error: unknown): error is ActiveSessi
       (error.name === "ActiveSessionAlreadyExistsError" ||
         error.message.startsWith("An Ephemeral Session is already active:")))
   );
+}
+
+function isProviderName(value: string): boolean {
+  return value === "gemini" || value === "openai";
 }
 
 function isMissingLlmCredentialsError(error: unknown): error is MissingLlmCredentialsError {
