@@ -89,7 +89,7 @@ describe("Proposal Engine factory", () => {
   });
 
   test("resolves model from ONIX_MODEL, then config, then the provider default", () => {
-    expect(resolveModel({}, "gemini")).toBe("gemini-2.5-flash");
+    expect(resolveModel({}, "gemini")).toBe("gemini-3.5-flash");
     expect(resolveModel({}, "openai")).toBe("gpt-5.5");
     expect(resolveModel({ model: "custom-model" }, "gemini")).toBe("custom-model");
 

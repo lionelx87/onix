@@ -60,7 +60,7 @@ describe("onix model", () => {
       consoleLog.mockRestore();
     }
 
-    expect(stdout.join("\n")).toContain("Model: gemini-2.5-flash (default for gemini)");
+    expect(stdout.join("\n")).toContain("Model: gemini-3.5-flash (default for gemini)");
   });
 
   test("reports the env-sourced model when ONIX_MODEL is set", async () => {

@@ -11,7 +11,7 @@ export type Provider = "gemini" | "openai";
 export const DEFAULT_PROVIDER: Provider = "gemini";
 
 export const PROVIDER_DEFAULTS: Record<Provider, { model: string; apiKeyEnv: string }> = {
-  gemini: { model: "gemini-2.5-flash", apiKeyEnv: "GEMINI_API_KEY" },
+  gemini: { model: "gemini-3.5-flash", apiKeyEnv: "GEMINI_API_KEY" },
   openai: { model: "gpt-5.5", apiKeyEnv: "OPENAI_API_KEY" }
 };
 

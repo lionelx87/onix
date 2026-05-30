@@ -218,7 +218,7 @@ The first interactive `close`, `review`, or `status → review` after a fresh in
   export OPENAI_API_KEY=sk-...
   ```
 
-- **Model** defaults per provider (`gemini` → `gemini-2.5-flash`, `openai` → `gpt-5.5`). Override per run with `ONIX_MODEL`, or persist with `onix model`. Resolution order: `ONIX_MODEL` → persisted model → provider default.
+- **Model** defaults per provider (`gemini` → `gemini-3.5-flash`, `openai` → `gpt-5.5`). Override per run with `ONIX_MODEL`, or persist with `onix model`. Resolution order: `ONIX_MODEL` → persisted model → provider default.
 
   ```bash
   pnpm onix model gemini-2.5-pro   # persist a preferred model

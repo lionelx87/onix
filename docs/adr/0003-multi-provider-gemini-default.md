@@ -32,7 +32,7 @@ A persisted CLI command `onix provider <name>` sets, shows, and clears the provi
 
 ### Default model per provider
 
-- `gemini` → `gemini-2.5-flash`
+- `gemini` → `gemini-3.5-flash` (updated from the original `gemini-2.5-flash`; see Rationale)
 - `openai` → `gpt-5.5` (unchanged from ADR-0002)
 
 Model override is unchanged: `ONIX_MODEL` → persisted `config.model` → the resolved provider's default.
@@ -64,7 +64,9 @@ Tests never reach a live provider. The dependency-injection seam in `closeSessio
 
 The `CaptureCompletionClient` seam introduced in slice #17 already isolates provider details, so adding Gemini is a new leaf adapter plus selection logic — the deep engine module stays untouched. This keeps the change small and the existing OpenAI path and tests intact.
 
-Gemini is the default because it is the only one of the three providers with a usable free tier, matching the immediate goal of running the live engine without paid API credits. `gemini-2.5-flash` balances interpretation quality against the free tier's per-minute and per-day request limits better than `pro` (tighter quota) or `flash-lite` (lower quality).
+Gemini is the default because it is the only one of the three providers with a usable free tier, matching the immediate goal of running the live engine without paid API credits.
+
+The Gemini default model is `gemini-3.5-flash`, the newest generally-available model in the Gemini 3 family (its `pro` members are preview-only). The original default was `gemini-2.5-flash`, chosen because `pro` carried tighter free-tier quota; that reasoning assumed meaningful request volume. The expected **Session Closing** volume is low — a handful per day, one request each — so the per-day request limit is not the binding constraint. The newer, stronger model is therefore preferred for higher-quality **Consolidated Knowledge** interpretation and structuring. The override order is unchanged.
 
 Per-provider credential variables follow each SDK's canonical name, so existing environments work without remapping. Keeping secrets out of persisted config matches ADR-0002.
 
