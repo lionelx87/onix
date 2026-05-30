@@ -10,9 +10,50 @@ Onix starts an Ephemeral Session, gives you a temporary Session Inbox for freefo
 - pnpm 11
 - An existing local Obsidian vault
 
+## Install the terminal command
+
+Onix installs as a local `onix` command from this repository. Nothing is published to a registry; the install builds from source and links the result. It requires Node.js `>=24 <27` (Node 24 LTS) and pnpm 11, as declared in `engines` and `packageManager` in `package.json`.
+
+From the repository root:
+
+```bash
+pnpm install
+pnpm build
+pnpm add -g .
+```
+
+`pnpm add -g .` registers this package's `onix` bin globally. pnpm links the global package back to this repository, so the global command runs the repository's built `dist/main.js`. (`pnpm link --global` was removed in pnpm 11; `pnpm add -g .` is its replacement.) Verify it from any directory outside the repository:
+
+```bash
+cd ~
+onix --help
+```
+
+If the shell reports `command not found: onix`, pnpm's global bin directory is not on your `PATH`. Run `pnpm setup` once, open a new terminal, and retry `onix --help`:
+
+```bash
+pnpm setup
+```
+
+### Update after pulling changes
+
+Because the global package links back to this repository's `dist/`, updating is a rebuild with no re-install:
+
+```bash
+git pull
+pnpm install
+pnpm build
+```
+
+### Uninstall
+
+```bash
+pnpm remove -g onix
+```
+
 ## Local CLI
 
-Run the development CLI from this repository with:
+For in-repo development you can skip the install and run the CLI directly with:
 
 ```bash
 pnpm onix <command>
@@ -258,6 +299,9 @@ NO_COLOR=1 pnpm onix --vault /path/to/vault review stubbed-plan
 pnpm test
 pnpm typecheck
 pnpm build
+pnpm smoke
 ```
+
+`pnpm smoke` builds and then launches the compiled `dist/main.js --help` from a temporary directory, asserting the command exits cleanly and exposes the expected command surface. It is deterministic and makes no live LLM calls, so it validates that the packaged `bin` entrypoint resolves and runs outside the repository.
 
 `pnpm test` includes `test/integration-flow.test.ts`, which walks the full local Learning Capture flow against a fixture vault: Session Start, freeform captures, Session Closing with the deterministic Proposal Engine, structured Review Actions (one approve, one edit, one discard, two approves across Research Inbox and Reference Library), apply with destination grouping, Session Inbox cleanup, and Versioning Review output. The fixture pre-populates `Knowledge/`, `Onix/Research Inbox.md`, and `Reference Library/` to exercise existing Knowledge Topics. A second integration case asserts that an apply aborted before write verification (here, a Write Boundary violation) leaves the Session Inbox and Active Session state intact.
