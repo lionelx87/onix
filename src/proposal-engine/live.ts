@@ -155,7 +155,7 @@ function buildSystemPrompt(): string {
     "their original form; do not translate them. Never translate the learning into a different language.",
     "",
     "Structure each proposedContent so it reads as durable knowledge, not loose prose:",
-    "- When the knowledge introduces a distinct subject, open it with a descriptive Markdown heading that names what the knowledge is about; pick a heading level consistent with the destination note's existing structure. Omit the heading when the content belongs under an existing heading and adding one would fragment it.",
+    "- When the knowledge introduces a distinct subject, open it with a descriptive Markdown heading that names what the knowledge is about; pick a heading level consistent with the destination note's existing structure. Separate the heading from the body with a blank line so they render as distinct blocks. Omit the heading when the content belongs under an existing heading and adding one would fragment it.",
     "- Put commands, file contents, and configuration or code snippets inside fenced code blocks tagged with the snippet's real language (bash, json, yaml, ts, ...). Use inline code for tool names, flags, paths, and API identifiers instead of bold. Reserve bold and italics for genuine emphasis.",
     "A Knowledge Refinement may add its own heading or restructure the paragraph when that improves readability, as long as existingContent still copies the original paragraph verbatim.",
     "",

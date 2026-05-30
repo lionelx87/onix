@@ -298,6 +298,7 @@ describe("Live Proposal Engine", () => {
     expect(prompt).toContain("heading");
     expect(prompt).toContain("distinct subject");
     expect(prompt).toContain("existing heading");
+    expect(prompt).toContain("blank line");
   });
 
   test("instructs the model to format snippets as fenced code blocks and identifiers as inline code", async () => {
