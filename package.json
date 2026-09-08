@@ -2,6 +2,11 @@
   "name": "onix",
   "version": "0.1.0",
   "description": "Local CLI-first Learning Capture tool for Obsidian vaults.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lionelx87/onix.git"
+  },
   "type": "module",
   "packageManager": "pnpm@11.1.2",
   "bin": {

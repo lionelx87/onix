@@ -10,3 +10,7 @@ coverage/
 .onix/logs/
 .onix/cache/
 .onix/sessions/
+
+# Never commit provider credentials; keys come from the environment.
+.env
+.env.*

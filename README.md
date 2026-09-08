@@ -2,7 +2,11 @@
 
 Local CLI-first Learning Capture tool for existing Obsidian vaults.
 
+[![CI](https://github.com/lionelx87/onix/actions/workflows/ci.yml/badge.svg)](https://github.com/lionelx87/onix/actions/workflows/ci.yml)
+
 Onix starts an Ephemeral Session, gives you a temporary Session Inbox for freeform writing, and later consolidates reviewed learning into stable knowledge notes.
+
+> **Status:** personal daily driver, in testing. There is no published release yet and the command surface still moves. Point it at a vault you have backed up.
 
 ## Requirements
 
@@ -305,3 +309,7 @@ pnpm smoke
 `pnpm smoke` builds and then launches the compiled `dist/main.js --help` from a temporary directory, asserting the command exits cleanly and exposes the expected command surface. It is deterministic and makes no live LLM calls, so it validates that the packaged `bin` entrypoint resolves and runs outside the repository.
 
 `pnpm test` includes `test/integration-flow.test.ts`, which walks the full local Learning Capture flow against a fixture vault: Session Start, freeform captures, Session Closing with the deterministic Proposal Engine, structured Review Actions (one approve, one edit, one discard, two approves across Research Inbox and Reference Library), apply with destination grouping, Session Inbox cleanup, and Versioning Review output. The fixture pre-populates `Knowledge/`, `Onix/Research Inbox.md`, and `Reference Library/` to exercise existing Knowledge Topics. A second integration case asserts that an apply aborted before write verification (here, a Write Boundary violation) leaves the Session Inbox and Active Session state intact.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
