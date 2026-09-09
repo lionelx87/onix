@@ -8,6 +8,8 @@ Onix starts an Ephemeral Session, gives you a temporary Session Inbox for freefo
 
 > **Status:** personal daily driver, in testing. There is no published release yet and the command surface still moves. Point it at a vault you have backed up.
 
+![Onix closing a session: the proposal engine returns a patch plan, then the Integrated Review shows the source capture next to the proposed note](docs/demo.gif)
+
 ## Requirements
 
 - Node.js 24 LTS
