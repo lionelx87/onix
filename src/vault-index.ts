@@ -17,6 +17,16 @@ export type VaultIndex = {
   notes: VaultIndexNote[];
 };
 
+export const projectsFolder = "Projects";
+
+export function isProjectNotePath(path: string): boolean {
+  return path.startsWith(`${projectsFolder}/`);
+}
+
+export function selectProjectNotes(index: VaultIndex): Array<{ path: string; title: string }> {
+  return index.notes.filter((note) => isProjectNotePath(note.path)).map(({ path, title }) => ({ path, title }));
+}
+
 export async function buildVaultIndex(vaultPath: string, now = new Date()): Promise<VaultIndex> {
   const notePaths = await listMarkdownNotes(vaultPath);
   const notes = await Promise.all(

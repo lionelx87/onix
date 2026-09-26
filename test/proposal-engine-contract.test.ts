@@ -61,7 +61,8 @@ describe("Proposal Engine contract", () => {
           content: "# Knowledge Topics\n\nStable subjects used to recover Consolidated Knowledge.\n"
         }
       ],
-      classificationRules: []
+      classificationRules: [],
+      projects: []
     });
 
     expect(plan.items).toHaveLength(5);
@@ -127,7 +128,8 @@ describe("Proposal Engine contract", () => {
           content: "# Knowledge Topics\n\nPrimary Topics answer the durable question.\n"
         }
       ],
-      classificationRules: []
+      classificationRules: [],
+      projects: []
     });
 
     expect(plan.items).toHaveLength(1);
@@ -167,7 +169,8 @@ describe("Proposal Engine contract", () => {
           content: "# Knowledge Topics\n\nPrimary Topics answer the durable question.\n"
         }
       ],
-      classificationRules: []
+      classificationRules: [],
+      projects: []
     });
 
     expect(plan.items).toHaveLength(1);
@@ -207,7 +210,8 @@ describe("Proposal Engine contract", () => {
         ]
       },
       candidateNotes: [],
-      classificationRules: []
+      classificationRules: [],
+      projects: []
     });
 
     expect(plan.items[0]).toMatchObject({

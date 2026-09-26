@@ -57,7 +57,8 @@ function buildKindSummary(plan: PatchPlan): string {
     "research-candidate": { glyph: "?", label: "Research" },
     "reference-item": { glyph: "@", label: "Reference" },
     "sensitive-candidate": { glyph: "!", label: "Sensitive" },
-    "no-consolidation-candidate": { glyph: "x", label: "No consolidation" }
+    "no-consolidation-candidate": { glyph: "x", label: "No consolidation" },
+    "project-context": { glyph: "#", label: "Project context" }
   };
   return [...counts.entries()]
     .map(([kind, count]) => `${labels[kind].glyph}  ${String(count).padStart(2)}  ${labels[kind].label}`)

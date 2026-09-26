@@ -360,6 +360,8 @@ function kindMeta(kind: PendingItem["kind"]): { glyph: string; tone: string; lab
       return { glyph: "!", tone: "red", label: "Sensitive" };
     case "no-consolidation-candidate":
       return { glyph: "x", tone: "gray", label: "No consolidation" };
+    case "project-context":
+      return { glyph: "#", tone: "cyan", label: "Project context" };
   }
 }
 
@@ -388,6 +390,9 @@ function buildSourcePane(current: PendingItem, decision: ReviewActionInput["acti
     `  {bold}Source{/}    ${current.sourceTrace}`,
     `  {bold}Topic{/}     ${current.primaryTopic ?? "—"}`,
     `  {bold}Related{/}   ${current.relatedTopics.length > 0 ? current.relatedTopics.join(", ") : "—"}`,
+    ...(current.project !== undefined && current.projectUsage !== undefined
+      ? [`  {bold}Project{/}   ${current.project} — ${current.projectUsage}`]
+      : []),
     "",
     "  {gray-fg}── Learning Capture (original){/}",
     ...wrap(current.learningCapture, 36).map((line) => `  {gray-fg}${line}{/}`)
@@ -945,6 +950,10 @@ function renderItem(
     writeLine(output, `${palette.dim("Related Topics:")} ${item.relatedTopics.join(", ")}`);
   }
 
+  if (item.project !== undefined && item.projectUsage !== undefined) {
+    writeLine(output, `${palette.dim("Project:")} ${item.project} — ${item.projectUsage}`);
+  }
+
   writeLine(output, `${palette.dim("Proposed Content:")} ${item.proposedContent}`);
 }
 
@@ -962,6 +971,8 @@ function colorizeKind(palette: Palette, kind: PendingItem["kind"]): string {
       return palette.red(kind);
     case "no-consolidation-candidate":
       return palette.dim(kind);
+    case "project-context":
+      return palette.cyan(kind);
   }
 }
 

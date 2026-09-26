@@ -200,6 +200,26 @@ _Avoid_: Obsidian note, thematic knowledge
 Stable operational state worth committing to Git, such as configuration and approved classification rules.
 _Avoid_: session state, generated plan, cache
 
+**Applicable Block**:
+**Consolidated Knowledge** someone can act on by reading it alone: it states when it applies, what the answer or decision is, and how to apply it.
+_Avoid_: fragment, snippet, summary
+
+**Projects Folder**:
+The vault folder (`Projects/`) whose notes are **Project Notes**.
+_Avoid_: area, workspace
+
+**Project Note**:
+A note under the **Projects Folder** that describes one project.
+_Avoid_: Knowledge Topic, project page
+
+**Project Context**:
+Learning that only makes sense inside one project, such as its decisions, status, configuration, conventions, or people.
+_Avoid_: project knowledge, project notes
+
+**Knowledge Link**:
+A line in a **Project Note** stating how a reusable **Applicable Block** was used in that project, linking to the block in its **Knowledge Topic**.
+_Avoid_: backlink, reference, related topic
+
 ## Relationships
 
 - A **Learning Capture** can reference one or more links as supporting context.
@@ -258,6 +278,11 @@ _Avoid_: session state, generated plan, cache
 - **Session Closing** does not automatically commit Git changes; it ends with **Versioning Review**.
 - The initial product uses **Local Vault Operation** and relies on the user's existing Obsidian and Git synchronization.
 - The initial product uses a **CLI Interface**.
+- **Capture Interpretation** groups scattered lines of a **Freeform Capture** into **Applicable Blocks**; one **Applicable Block** answers one question.
+- An **Applicable Block** that stays useful outside the project where it came up is reusable knowledge and is stored once, in its **Knowledge Topic**, never in a **Project Note**.
+- When reusable knowledge came up in a project, the **Project Note** receives a **Knowledge Link** instead of a copy of the knowledge.
+- A **Knowledge Link** is derived at apply time from the reviewed destination and first heading of the **Applicable Block**, so edits and moves in the **Integrated Review** keep it valid.
+- **Project Context** is stored in its **Project Note**.
 
 ## Example dialogue
 

@@ -30,6 +30,7 @@ function baseInput(overrides: Partial<ProposalEngineInput> = {}): ProposalEngine
       }
     ],
     classificationRules: [],
+    projects: [],
     ...overrides
   };
 }
@@ -334,5 +335,55 @@ describe("Live Proposal Engine", () => {
     const prompt = captured?.systemPrompt.toLowerCase() ?? "";
     expect(prompt).toContain("knowledge refinement may");
     expect(prompt).toContain("verbatim");
+  });
+  test("instructs the model to extract Applicable Blocks and route them between Knowledge Topics and Project Notes", async () => {
+    let captured: { systemPrompt: string; userPrompt: string } | undefined;
+    const client: CaptureCompletionClient = {
+      async complete(request) {
+        captured = { systemPrompt: request.systemPrompt, userPrompt: request.userPrompt };
+        return validPlan;
+      }
+    };
+
+    const engine = createLiveProposalEngine({ client, model: "gemini-3.8-flash" });
+    await engine.propose(baseInput({ projects: [{ path: "Projects/Onix.md", title: "Onix" }] }));
+
+    expect(captured?.systemPrompt).toContain("Applicable Block");
+    expect(captured?.systemPrompt).toContain("project-context");
+    expect(captured?.systemPrompt).toContain("projectUsage");
+    expect(captured?.systemPrompt).toContain("would it still be useful outside the project");
+    expect(captured?.userPrompt).toContain("Projects (existing Project Notes):");
+    expect(captured?.userPrompt).toContain("Projects/Onix.md");
+  });
+
+  test("keeps project links only for listed Project Notes and demotes Project Context outside the Projects Folder", async () => {
+    const item = JSON.parse(validPlan).items[0];
+    const response = JSON.stringify({
+      summary: "Routing.",
+      items: [
+        { ...item, id: "known", project: "Projects/Onix.md", projectUsage: "Used in the CI image." },
+        { ...item, id: "unknown", project: "Projects/Ghost.md", projectUsage: "Invented project." },
+        { ...item, id: "inside", kind: "project-context", destinationPath: "Projects/Onix.md" },
+        { ...item, id: "outside", kind: "project-context", destinationPath: "Knowledge/Onix.md" },
+        {
+          ...item,
+          id: "wrong-kind",
+          kind: "research-candidate",
+          project: "Projects/Onix.md",
+          projectUsage: "Not a knowledge block."
+        }
+      ]
+    });
+    const engine = createLiveProposalEngine({ client: clientReturning(response), model: "gemini-3.8-flash" });
+
+    const plan = await engine.propose(baseInput({ projects: [{ path: "Projects/Onix.md", title: "Onix" }] }));
+    const byId = new Map(plan.items.map((planItem) => [planItem.id, planItem]));
+
+    expect(byId.get("known")).toMatchObject({ project: "Projects/Onix.md", projectUsage: "Used in the CI image." });
+    expect(byId.get("unknown")?.project).toBeUndefined();
+    expect(byId.get("unknown")?.projectUsage).toBeUndefined();
+    expect(byId.get("inside")?.kind).toBe("project-context");
+    expect(byId.get("outside")?.kind).toBe("consolidated-knowledge");
+    expect(byId.get("wrong-kind")?.project).toBeUndefined();
   });
 });

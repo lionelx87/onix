@@ -1,5 +1,6 @@
 import type { ClassificationRule, PatchPlan, ProposalEngine, ProposalEngineInput } from "./contract.js";
 import { parsePatchPlan } from "./contract.js";
+import { isProjectNotePath } from "../vault-index.js";
 
 export type CaptureCompletionRequest = {
   model: string;
@@ -37,7 +38,8 @@ export function createLiveProposalEngine(options: LiveProposalEngineOptions): Pr
         try {
           const plan = parsePatchPlan(assemblePatchPlanEnvelope(parseJsonResponse(response)));
           const ruled = applyClassificationRules(plan, input.classificationRules);
-          return demoteUnverifiableRefinements(ruled, input.candidateNotes);
+          const verified = demoteUnverifiableRefinements(ruled, input.candidateNotes);
+          return sanitizeProjectRouting(verified, input.projects);
         } catch (error) {
           lastError = error instanceof Error ? error : new Error(String(error));
           userPrompt = `${basePrompt}\n\nYour previous response was rejected: ${lastError.message}\nReturn only valid JSON for the Patch Plan.`;
@@ -72,6 +74,34 @@ function demoteUnverifiableRefinements(
 
       const { existingContent: _existingContent, refinementReason: _refinementReason, ...rest } = item;
       return { ...rest, kind: "consolidated-knowledge" };
+    })
+  };
+}
+
+const projectUsageKinds = new Set<PatchPlan["items"][number]["kind"]>(["consolidated-knowledge", "knowledge-refinement"]);
+
+function sanitizeProjectRouting(plan: PatchPlan, projects: ProposalEngineInput["projects"]): PatchPlan {
+  const knownProjects = new Set(projects.map((project) => project.path));
+
+  return {
+    ...plan,
+    items: plan.items.map((item) => {
+      const { project, projectUsage, ...rest } = item;
+      const routed =
+        item.kind === "project-context" && (item.destinationPath === undefined || !isProjectNotePath(item.destinationPath))
+          ? { ...rest, kind: "consolidated-knowledge" as const }
+          : rest;
+
+      if (
+        project === undefined ||
+        projectUsage === undefined ||
+        !knownProjects.has(project) ||
+        !projectUsageKinds.has(routed.kind)
+      ) {
+        return routed;
+      }
+
+      return { ...routed, project, projectUsage };
     })
   };
 }
@@ -134,7 +164,14 @@ function parseJsonResponse(response: string): unknown {
 function buildSystemPrompt(): string {
   return [
     "You are the Proposal Engine for Onix, a Learning Capture tool for Obsidian vaults.",
-    "Interpret the Freeform Capture into atomic Learning Captures and produce a Patch Plan as JSON only.",
+    "Interpret the Freeform Capture into Learning Captures and produce a Patch Plan as JSON only.",
+    "The Freeform Capture is often a raw dump of notes, chat excerpts, commands, and logs, in no particular order.",
+    "",
+    "Extract Applicable Blocks, not fragments. An Applicable Block is Consolidated Knowledge someone can act on by reading it alone:",
+    "- It states when it applies (the context or problem), what the answer or decision is, and how to apply it (steps, commands, snippets, caveats).",
+    "- Gather every line of the Freeform Capture that belongs to the same block, even when the lines are scattered; never split one procedure or explanation across several items.",
+    "- Never merge unrelated subjects into one item; one Applicable Block answers one question.",
+    "- Leave out conversational noise, dead ends, and repetition; classify leftovers that are not durable as no-consolidation-candidate.",
     "",
     "Classify each Learning Capture into exactly one kind:",
     "- consolidated-knowledge: Consolidated Knowledge to store under a Knowledge Topic.",
@@ -143,6 +180,13 @@ function buildSystemPrompt(): string {
     "- reference-item: a Reference Item, a link or reference that stays useful to access after producing learning.",
     "- no-consolidation-candidate: a No Consolidation Candidate, not durable learning as written (e.g. reminders, pure duplicates).",
     "- sensitive-candidate: a Sensitive Candidate that may contain private, secret, or identifying information; never set a destinationPath.",
+    "- project-context: Project Context, learning that only makes sense inside one project (its decisions, status, configuration, conventions, or people). Set destinationPath to that project's Project Note.",
+    "",
+    "Route every Applicable Block by asking: would it still be useful outside the project where it came up?",
+    "- Yes: it is reusable knowledge. Store it once, in its Knowledge Topic, as consolidated-knowledge or knowledge-refinement; never store reusable knowledge inside a Project Note.",
+    "  When it came up while working on a listed project, also set project to that Project Note path and projectUsage to one short sentence on why or how it was used there. Do not repeat the knowledge in projectUsage; Onix links the Project Note to the block.",
+    "- No: it is project-context stored in that Project Note. Reference reusable knowledge by name instead of restating it.",
+    "Only use Project Note paths from the provided Projects list for project, and omit project when no listed project clearly applies.",
     "",
     "Set the Primary Topic to the single Knowledge Topic where Consolidated Knowledge is stored,",
     "and Related Topics to secondary Knowledge Topics that improve discovery without duplicating content.",
@@ -163,7 +207,7 @@ function buildSystemPrompt(): string {
     '{ "summary": string, "items": [ { "id": string, "kind": one of the kinds above,',
     '  "destinationPath"?: string, "learningCapture": string, "primaryTopic"?: string,',
     '  "relatedTopics": string[], "sourceTrace": string, "proposedContent": string,',
-    '  "existingContent"?: string, "refinementReason"?: string } ] }',
+    '  "existingContent"?: string, "refinementReason"?: string, "project"?: string, "projectUsage"?: string } ] }',
     "Output JSON only, with no prose or code fences."
   ].join("\n");
 }
@@ -180,6 +224,9 @@ function buildUserPrompt(input: ProposalEngineInput): string {
     JSON.stringify(input.vaultIndex, null, 2),
     "",
     "Candidate Notes (read deeply for duplicates and Knowledge Refinement):",
-    JSON.stringify(input.candidateNotes, null, 2)
+    JSON.stringify(input.candidateNotes, null, 2),
+    "",
+    "Projects (existing Project Notes):",
+    JSON.stringify(input.projects, null, 2)
   ].join("\n");
 }

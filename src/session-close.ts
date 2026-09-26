@@ -6,7 +6,7 @@ import type { PatchPlan, ProposalEngine } from "./proposal-engine/contract.js";
 import { resolveProposalEngine } from "./proposal-engine/factory.js";
 import { renderReview } from "./review-rendering.js";
 import type { ActiveSession } from "./session-start.js";
-import { buildVaultIndex, selectCandidateNotes } from "./vault-index.js";
+import { buildVaultIndex, selectCandidateNotes, selectProjectNotes } from "./vault-index.js";
 
 export type CloseSessionResult = {
   plan: PatchPlan;
@@ -75,7 +75,8 @@ export async function closeSession(
     vaultIndexRef,
     vaultIndex,
     candidateNotes,
-    classificationRules: classificationRulesStore.rules
+    classificationRules: classificationRulesStore.rules,
+    projects: selectProjectNotes(vaultIndex)
   });
   const reviewRendering = renderReview(plan);
 

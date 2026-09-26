@@ -104,7 +104,19 @@ By default `close` uses the live LLM-backed Proposal Engine, with Gemini (`gemin
 /path/to/vault/.onix/approvals/stubbed-plan.json
 ```
 
-The generated Patch Plan can contain Consolidated Knowledge, Knowledge Refinements, Research Candidates, Reference Items, Sensitive Candidates, and No Consolidation Candidates. It records the original Learning Capture, source trace, Primary Topic, Related Topics, destination path when applicable, and proposed content. Tests use deterministic fixtures and do not call a live LLM.
+The generated Patch Plan can contain Consolidated Knowledge, Knowledge Refinements, Project Context, Research Candidates, Reference Items, Sensitive Candidates, and No Consolidation Candidates. It records the original Learning Capture, source trace, Primary Topic, Related Topics, destination path when applicable, and proposed content. Tests use deterministic fixtures and do not call a live LLM.
+
+The live engine turns the Session Inbox, even a raw text dump, into Applicable Blocks. Each block stands on its own: when it applies, what it is, and how to apply it. Every note under `Projects/` is a Project Note, and the engine routes each block like this:
+
+- Reusable knowledge goes to its Knowledge Topic note. When it came up in a project, the item also carries `project` and `projectUsage`, and `apply` adds a Knowledge Link to that Project Note under `## Knowledge links`:
+
+  ```markdown
+  - Fixed the stale dependency layer in the CI image → [[Docker/Docker#Rebuild without cache]]
+  ```
+
+- Knowledge that only makes sense inside one project, such as decisions, status or conventions, becomes Project Context. It is written to the Project Note.
+
+See [ADR 0006](docs/adr/0006-project-context-and-knowledge-links.md).
 
 Duplicate handling runs against the Candidate Notes selected from the Vault Index:
 
@@ -202,16 +214,9 @@ pnpm onix --vault /path/to/vault apply stubbed-plan
 
 Approved Knowledge Refinements replace the matching `existingContent` paragraph in the destination note in place rather than appending. If the paragraph no longer exists in the destination, `apply` stops with a `Refinement target not found` error so the proposal can be regenerated.
 
-Approved Consolidated Knowledge is written to thematic vault files inside the initial Write Boundary:
+Approved items can be written anywhere inside the Write Boundary, which is the whole vault except the Operational Store (`.onix/`). Absolute paths and `..` traversal are rejected; see [ADR 0004](docs/adr/0004-write-boundary-whole-vault.md).
 
-```text
-Knowledge/
-Onix/Research Inbox.md
-References/
-Reference Library/
-```
-
-Approved Research Candidates are written to `Onix/Research Inbox.md` under their suggested topic. Approved Reference Items are written under `Reference Library/` by topic and include a link back to the learning topic when that improves traceability. Discarded and pending items are not written.
+Approved Research Candidates and Reference Items are written under their suggested topic. A Reference Item includes a link back to the learning topic. An approved knowledge item that carries `project` and `projectUsage` also writes a Knowledge Link into its Project Note. The link points to the item's reviewed destination and first heading, so it stays valid after `edit` or `move`. Discarded and pending items are not written.
 
 After write verification succeeds, `apply` deletes the Session Inbox and Active Session state. It ends with a Versioning Review that lists changed vault files for manual Git review. It does not create Git commits.
 

@@ -65,7 +65,8 @@ describe("Proposal Engine factory", () => {
       vaultIndexRef: ".onix/indexes/vault-index.json",
       vaultIndex: { schemaVersion: 1, generatedAt: "2026-05-27T12:00:00.000Z", notes: [] },
       candidateNotes: [],
-      classificationRules: []
+      classificationRules: [],
+      projects: []
     });
 
     expect(plan.planId).toBe("stubbed-plan");

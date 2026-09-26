@@ -14,7 +14,10 @@ type WriteCandidate = {
   destinationPath: string;
   content: string;
   existingContent?: string;
+  knowledgeLink?: true;
 };
+
+const knowledgeLinksHeading = "## Knowledge links";
 
 export async function applySession(vaultPath: string, requestedPlanId?: string): Promise<ApplySessionResult> {
   const layout = storeLayout(".onix");
@@ -68,10 +71,15 @@ function writeCandidatesFor(plan: PatchPlan, decisions: ApprovalDecision[]): Wri
     }
 
     if (decision.action === "split") {
-      for (const part of decision.parts) {
-        if (part.destinationPath !== undefined) {
-          candidates.push({ destinationPath: part.destinationPath, content: renderApprovedContent(item, part.content) });
-        }
+      const writtenParts = decision.parts.filter(
+        (part): part is { destinationPath: string; content: string } => part.destinationPath !== undefined
+      );
+      for (const part of writtenParts) {
+        candidates.push({ destinationPath: part.destinationPath, content: renderApprovedContent(item, part.content) });
+      }
+      const linkedPart = writtenParts[0];
+      if (linkedPart !== undefined) {
+        candidates.push(...knowledgeLinkCandidateFor(item, linkedPart.destinationPath, linkedPart.content));
       }
       continue;
     }
@@ -84,10 +92,54 @@ function writeCandidatesFor(plan: PatchPlan, decisions: ApprovalDecision[]): Wri
           ? { existingContent: item.existingContent }
           : {})
       });
+      candidates.push(...knowledgeLinkCandidateFor(item, decision.destinationPath, decision.content));
     }
   }
 
   return candidates;
+}
+
+function knowledgeLinkCandidateFor(
+  item: PatchPlan["items"][number],
+  knowledgePath: string,
+  knowledgeContent: string
+): WriteCandidate[] {
+  if (item.project === undefined || item.projectUsage === undefined || item.project === knowledgePath) {
+    return [];
+  }
+
+  return [
+    {
+      destinationPath: item.project,
+      content: renderKnowledgeLink(item.projectUsage, knowledgePath, knowledgeContent),
+      knowledgeLink: true
+    }
+  ];
+}
+
+export function renderKnowledgeLink(projectUsage: string, knowledgePath: string, knowledgeContent: string): string {
+  const noteTarget = knowledgePath.replace(/\.md$/, "");
+  const heading = firstHeading(knowledgeContent);
+  const target = heading === undefined ? noteTarget : `${noteTarget}#${heading}`;
+  return `- ${projectUsage.trim()} → [[${target}]]`;
+}
+
+function firstHeading(content: string): string | undefined {
+  let insideFence = false;
+
+  for (const line of content.split("\n")) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      insideFence = !insideFence;
+      continue;
+    }
+
+    const match = insideFence ? null : /^#{1,6}\s+(.+?)\s*#*\s*$/.exec(line);
+    if (match?.[1] !== undefined) {
+      return match[1];
+    }
+  }
+
+  return undefined;
 }
 
 function renderApprovedContent(item: PatchPlan["items"][number], content: string): string {
@@ -194,9 +246,22 @@ function renderDestinationContent(existingContent: string, candidates: WriteCand
   }
 
   const additions = candidates
-    .filter((candidate) => candidate.existingContent === undefined)
+    .filter((candidate) => candidate.existingContent === undefined && candidate.knowledgeLink === undefined)
     .map((candidate) => candidate.content.trim())
     .filter(Boolean);
+
+  const knowledgeLinks = candidates
+    .filter((candidate) => candidate.knowledgeLink !== undefined)
+    .map((candidate) => candidate.content.trim());
+
+  if (knowledgeLinks.length > 0) {
+    const withSection = insertIntoKnowledgeLinksSection(working, knowledgeLinks);
+    if (withSection === undefined) {
+      additions.push(`${knowledgeLinksHeading}\n\n${knowledgeLinks.join("\n")}`);
+    } else {
+      working = withSection;
+    }
+  }
 
   const trimmedExisting = working.trimEnd();
 
@@ -211,6 +276,25 @@ function renderDestinationContent(existingContent: string, candidates: WriteCand
   }
 
   return `${trimmedExisting}\n\n${additionBlock}\n`;
+}
+
+function insertIntoKnowledgeLinksSection(content: string, links: string[]): string | undefined {
+  const lines = content.split("\n");
+  const headingIndex = lines.findIndex((line) => line.trim() === knowledgeLinksHeading);
+  if (headingIndex === -1) {
+    return undefined;
+  }
+
+  const nextSectionOffset = lines.slice(headingIndex + 1).findIndex((line) => /^#{1,2}\s/.test(line));
+  const sectionEnd = nextSectionOffset === -1 ? lines.length : headingIndex + 1 + nextSectionOffset;
+  let insertAt = sectionEnd;
+  while (insertAt > headingIndex + 1 && lines[insertAt - 1]!.trim() === "") {
+    insertAt -= 1;
+  }
+
+  const separator = insertAt === headingIndex + 1 ? [""] : [];
+  const trailing = sectionEnd < lines.length ? [""] : [];
+  return [...lines.slice(0, insertAt), ...separator, ...links, ...trailing, ...lines.slice(sectionEnd)].join("\n");
 }
 
 function replaceParagraph(content: string, existingParagraph: string, replacement: string): string {

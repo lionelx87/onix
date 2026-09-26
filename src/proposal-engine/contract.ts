@@ -38,7 +38,15 @@ export const proposalEngineInputSchema = z.object({
       content: z.string()
     })
   ),
-  classificationRules: z.array(classificationRuleSchema).default([])
+  classificationRules: z.array(classificationRuleSchema).default([]),
+  projects: z
+    .array(
+      z.object({
+        path: z.string().min(1),
+        title: z.string()
+      })
+    )
+    .default([])
 });
 
 export const patchPlanSchema = z.object({
@@ -54,7 +62,8 @@ export const patchPlanSchema = z.object({
         "research-candidate",
         "reference-item",
         "no-consolidation-candidate",
-        "sensitive-candidate"
+        "sensitive-candidate",
+        "project-context"
       ]),
       destinationPath: z.string().min(1).optional(),
       learningCapture: z.string().min(1),
@@ -63,7 +72,9 @@ export const patchPlanSchema = z.object({
       sourceTrace: z.string().min(1),
       proposedContent: z.string(),
       existingContent: z.string().min(1).optional(),
-      refinementReason: z.string().min(1).optional()
+      refinementReason: z.string().min(1).optional(),
+      project: z.string().min(1).optional(),
+      projectUsage: z.string().min(1).optional()
     })
   )
 });
