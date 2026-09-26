@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import type { CaptureCompletionClient } from "./live.js";
+import { asProviderUnavailableError } from "./provider-errors.js";
 
 export type GeminiCompletionClientOptions = {
   apiKey: string;
@@ -10,14 +11,18 @@ export function createGeminiCompletionClient(options: GeminiCompletionClientOpti
 
   return {
     async complete(request) {
-      const response = await ai.models.generateContent({
-        model: request.model,
-        contents: request.userPrompt,
-        config: {
-          systemInstruction: request.systemPrompt,
-          responseMimeType: "application/json"
-        }
-      });
+      const response = await ai.models
+        .generateContent({
+          model: request.model,
+          contents: request.userPrompt,
+          config: {
+            systemInstruction: request.systemPrompt,
+            responseMimeType: "application/json"
+          }
+        })
+        .catch((error: unknown) => {
+          throw asProviderUnavailableError(error, "Gemini", request.model);
+        });
 
       const text = response.text;
       if (text === undefined || text.length === 0) {

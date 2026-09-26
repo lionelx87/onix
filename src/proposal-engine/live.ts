@@ -1,6 +1,13 @@
-import type { ClassificationRule, PatchPlan, ProposalEngine, ProposalEngineInput } from "./contract.js";
+import type {
+  ClassificationRule,
+  PatchPlan,
+  ProposalEngine,
+  ProposalEngineInput,
+  ProposeOptions
+} from "./contract.js";
 import { parsePatchPlan } from "./contract.js";
 import { isProjectNotePath } from "../vault-index.js";
+import { ProviderUnavailableError } from "./provider-errors.js";
 
 export type CaptureCompletionRequest = {
   model: string;
@@ -16,24 +23,56 @@ export type LiveProposalEngineOptions = {
   client: CaptureCompletionClient;
   model: string;
   maxRetries?: number;
+  providerRetryDelaysMs?: number[];
+  sleep?: (ms: number) => Promise<void>;
 };
+
+const DEFAULT_PROVIDER_RETRY_DELAYS_MS = [5_000, 20_000];
 
 export function createLiveProposalEngine(options: LiveProposalEngineOptions): ProposalEngine {
   const { client, model } = options;
   const maxRetries = options.maxRetries ?? 2;
+  const providerRetryDelaysMs = options.providerRetryDelaysMs ?? DEFAULT_PROVIDER_RETRY_DELAYS_MS;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+
+  async function completeRetryingUnavailableProvider(
+    request: CaptureCompletionRequest,
+    proposeOptions: ProposeOptions
+  ): Promise<string> {
+    const maxAttempts = providerRetryDelaysMs.length + 1;
+
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await client.complete(request);
+      } catch (error) {
+        const delayMs = providerRetryDelaysMs[attempt - 1];
+        if (!(error instanceof ProviderUnavailableError) || delayMs === undefined) {
+          throw error;
+        }
+
+        proposeOptions.onProviderRetry?.({
+          provider: error.provider,
+          status: error.status,
+          nextAttempt: attempt + 1,
+          maxAttempts,
+          delayMs
+        });
+        await sleep(delayMs);
+      }
+    }
+  }
 
   return {
-    async propose(input: ProposalEngineInput): Promise<PatchPlan> {
+    async propose(input: ProposalEngineInput, proposeOptions: ProposeOptions = {}): Promise<PatchPlan> {
       const basePrompt = buildUserPrompt(input);
       let userPrompt = basePrompt;
       let lastError: Error | undefined;
 
       for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-        const response = await client.complete({
-          model,
-          systemPrompt: buildSystemPrompt(),
-          userPrompt
-        });
+        const response = await completeRetryingUnavailableProvider(
+          { model, systemPrompt: buildSystemPrompt(), userPrompt },
+          proposeOptions
+        );
 
         try {
           const plan = parsePatchPlan(assemblePatchPlanEnvelope(parseJsonResponse(response)));

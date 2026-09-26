@@ -2,7 +2,7 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join, posix } from "node:path";
 import { readClassificationRules } from "./classification-rules.js";
 import { storeLayout } from "./operational-store/layout.js";
-import type { PatchPlan, ProposalEngine } from "./proposal-engine/contract.js";
+import type { PatchPlan, ProposalEngine, ProviderRetryEvent } from "./proposal-engine/contract.js";
 import { resolveProposalEngine } from "./proposal-engine/factory.js";
 import { renderReview } from "./review-rendering.js";
 import type { ActiveSession } from "./session-start.js";
@@ -16,6 +16,7 @@ export type CloseSessionResult = {
 export type CloseSessionStage =
   | { stage: "vault-index-built"; noteCount: number }
   | { stage: "captures-interpreted"; captureChars: number }
+  | ({ stage: "provider-retry" } & ProviderRetryEvent)
   | { stage: "plan-generated"; itemCount: number };
 
 export type CloseSessionOptions = {
@@ -68,16 +69,19 @@ export async function closeSession(
   await writeFile(join(vaultPath, vaultIndexRef), JSON.stringify(vaultIndex, null, 2));
 
   const classificationRulesStore = await readClassificationRules(vaultPath);
-  const plan = await proposalEngine.propose({
-    schemaVersion: 1,
-    sessionInboxPath: inbox.relativePath,
-    freeformCapture,
-    vaultIndexRef,
-    vaultIndex,
-    candidateNotes,
-    classificationRules: classificationRulesStore.rules,
-    projects: selectProjectNotes(vaultIndex)
-  });
+  const plan = await proposalEngine.propose(
+    {
+      schemaVersion: 1,
+      sessionInboxPath: inbox.relativePath,
+      freeformCapture,
+      vaultIndexRef,
+      vaultIndex,
+      candidateNotes,
+      classificationRules: classificationRulesStore.rules,
+      projects: selectProjectNotes(vaultIndex)
+    },
+    { onProviderRetry: (event) => onStage?.({ stage: "provider-retry", ...event }) }
+  );
   const reviewRendering = renderReview(plan);
 
   await mkdir(join(vaultPath, layout.transient.patchPlans), { recursive: true });

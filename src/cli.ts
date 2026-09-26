@@ -18,6 +18,7 @@ import {
   PROVIDER_DEFAULTS,
   resolveProvider
 } from "./proposal-engine/factory.js";
+import { ProviderUnavailableError } from "./proposal-engine/provider-errors.js";
 import { ActiveSessionAlreadyExistsError, startSession } from "./session-start.js";
 import { buildStatusReport, renderStatusReport } from "./status.js";
 
@@ -253,7 +254,12 @@ export function createCli(io: CliIo = {}): Command {
       if (output === process.stdout && process.stdout.isTTY === true && reviewRequested) {
         await ensureEditorConfigured();
         const tui = await runCloseTui(vaultPath).catch((error: unknown) => {
-          if (isNoActiveSessionError(error) || isSessionInboxNotFoundError(error) || isMissingLlmCredentialsError(error)) {
+          if (
+            isNoActiveSessionError(error) ||
+            isSessionInboxNotFoundError(error) ||
+            isMissingLlmCredentialsError(error) ||
+            isProviderUnavailableError(error)
+          ) {
             program.error(error.message);
           }
 
@@ -267,7 +273,12 @@ export function createCli(io: CliIo = {}): Command {
       }
 
       const { plan, reviewRendering } = await closeSession(vaultPath).catch((error: unknown) => {
-        if (isNoActiveSessionError(error) || isSessionInboxNotFoundError(error) || isMissingLlmCredentialsError(error)) {
+        if (
+          isNoActiveSessionError(error) ||
+          isSessionInboxNotFoundError(error) ||
+          isMissingLlmCredentialsError(error) ||
+          isProviderUnavailableError(error)
+        ) {
           program.error(error.message);
         }
 
@@ -452,6 +463,10 @@ function isMissingLlmCredentialsError(error: unknown): error is MissingLlmCreden
     (error instanceof Error &&
       (error.name === "MissingLlmCredentialsError" || error.message.startsWith("Missing OpenAI credentials.")))
   );
+}
+
+function isProviderUnavailableError(error: unknown): error is ProviderUnavailableError {
+  return error instanceof ProviderUnavailableError || (error instanceof Error && error.name === "ProviderUnavailableError");
 }
 
 function isNoActiveSessionError(error: unknown): error is NoActiveSessionError {

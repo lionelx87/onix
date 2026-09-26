@@ -16,10 +16,17 @@ export async function runCloseTui(vaultPath: string): Promise<CloseTuiResult> {
         spin.message(`Vault Index ready — ${event.noteCount} notes`);
       } else if (event.stage === "captures-interpreted") {
         spin.message("Interpreting Captures…");
+      } else if (event.stage === "provider-retry") {
+        spin.message(
+          `${event.provider} unavailable (HTTP ${event.status}) — retrying in ${Math.round(event.delayMs / 1000)}s, attempt ${event.nextAttempt}/${event.maxAttempts}…`
+        );
       } else if (event.stage === "plan-generated") {
         spin.message(`Patch Plan generated — ${event.itemCount} items`);
       }
     }
+  }).catch((error: unknown) => {
+    spin.error("Session Closing failed");
+    throw error;
   });
 
   spin.stop(`Patch Plan ready · ${result.plan.planId}`);

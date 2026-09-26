@@ -82,8 +82,20 @@ export const patchPlanSchema = z.object({
 export type ProposalEngineInput = z.infer<typeof proposalEngineInputSchema>;
 export type PatchPlan = z.infer<typeof patchPlanSchema>;
 
+export type ProviderRetryEvent = {
+  provider: string;
+  status: number;
+  nextAttempt: number;
+  maxAttempts: number;
+  delayMs: number;
+};
+
+export type ProposeOptions = {
+  onProviderRetry?: (event: ProviderRetryEvent) => void;
+};
+
 export type ProposalEngine = {
-  propose(input: ProposalEngineInput): Promise<PatchPlan>;
+  propose(input: ProposalEngineInput, options?: ProposeOptions): Promise<PatchPlan>;
 };
 
 export function parsePatchPlan(candidate: unknown): PatchPlan {
